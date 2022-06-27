@@ -1,0 +1,6 @@
+package-as: Details
+
+move-folders:
+  Details/Details: Details
+  Details/Details_Streamer: Details_Streamer
+  Details/Details_TinyThreat: Details_TinyThreat
