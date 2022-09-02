@@ -1,4 +1,4 @@
-## Interface: 20504
+## Interface: 30400
 ## Title: Details! Damage Meter
 ## Notes: Essential tool to impress that chick in your raid.
 ## SavedVariables: _detalhes_global
@@ -41,7 +41,6 @@ functions\savedata.lua
 functions\slash.lua
 functions\playerclass.lua
 functions\timedata.lua
-functions\currentdps.lua
 functions\report.lua
 functions\rowanimation.lua
 functions\raidinfo.lua
@@ -77,6 +76,7 @@ frames\window_custom.lua
 frames\window_welcome.lua
 frames\window_news.lua
 frames\window_wa.lua
+frames\window_spellcategory.lua
 frames\window_forge.lua
 frames\window_switch.lua
 frames\window_scrolldamage.lua
