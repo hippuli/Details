@@ -2,5 +2,10 @@ package-as: Details
 
 move-folders:
   Details/Details: Details
+  Details/Details_Compare2: Details_Compare2
+  Details/Details_DataStorage: Details_DataStorage
+  Details/Details_EncounterDetails: Details_EncounterDetails
+  Details/Details_RaidCheck: Details_RaidCheck
   Details/Details_Streamer: Details_Streamer
   Details/Details_TinyThreat: Details_TinyThreat
+  Details/Details_Vanguard: Details_Vanguard
