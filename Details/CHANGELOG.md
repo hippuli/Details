@@ -1,6 +1,7 @@
 # Details! Damage Meter
 
-## [Details.20230509.11001.151](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20230509.11001.151) (2023-05-09)
-[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20230509.11000.151...Details.20230509.11001.151) 
+## [Details.20230513.11011.151](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20230513.11011.151) (2023-05-13)
+[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20230512.11010.151...Details.20230513.11011.151) 
 
-- Removed the "Under Maintenance" from the breakdown window title  
+- Changelogs  
+- Added options "Group Player Spells With Same Name" and ""Group Pets By Spell"  
