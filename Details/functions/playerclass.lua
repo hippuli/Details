@@ -275,6 +275,18 @@ do
 		return Details.cached_specs[unitSerial]
 	end
 
+	local specNamesToId = {}
+	if(DetailsFramework.IsDragonflightAndBeyond()) then
+		local classSpecList = DetailsFramework.ClassSpecs
+		for _, specs in pairs(classSpecList) do
+			for specId, __ in pairs(specs) do
+				local id, name = GetSpecializationInfoByID(specId)
+				if (id and name) then
+					specNamesToId[name] = id;
+				end
+			end
+		end
+	end
 
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -377,6 +389,23 @@ do
 			actorSpec = Details.cached_specs[actorObject.serial]
 		end
 
+		--attempt to get spec from tooltip
+		if (not actorSpec and DetailsFramework:IsDragonflightAndBeyond()) then
+			local tooltipData = C_TooltipInfo.GetHyperlink("unit:".. actorObject.serial)
+			if (tooltipData and tooltipData.lines) then
+				for _, line in pairs(tooltipData.lines) do
+					if (line.leftText) then
+						for str in line.leftText:gmatch("%S+") do
+							if (specNamesToId[str]) then
+								actorSpec = specNamesToId[str]
+							end
+						end
+					end
+				end
+			end
+			
+		end
+
 		--attempt to get from the spells the actor used in the current combat
 		if (not actorSpec) then
 			local currentCombatObject = Details:GetCurrentCombat()
@@ -455,7 +484,6 @@ do
 
 		if (actorSpec) then
 			Details.cached_specs[actorObject.serial] = actorSpec
-
 			actorObject:SetSpecId(actorSpec)
 			actorObject.classe = Details.SpecIDToClass[actorSpec] or actorObject.classe
 			actorObject.guessing_spec = nil

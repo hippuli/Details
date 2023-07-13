@@ -580,7 +580,7 @@
 	end
 
 	--~spell ~spelldamage
-	function parser:spell_dmg(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetRaidFlags, spellId, spellName, spellType, amount, overkill, school, resisted, blocked, absorbed, critical, glacing, crushing, isoffhand, isreflected)
+	function parser:spell_dmg(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetRaidFlags, spellId, spellName, spellType, amount, overkill, school, resisted, blocked, absorbed, critical, glacing, crushing, isoffhand, isreflected, A1, A2, A3)
 		--early checks and fixes
 		if (sourceSerial == "") then
 			if (sourceFlags and bitBand(sourceFlags, OBJECT_TYPE_PETS) ~= 0) then
@@ -1181,7 +1181,19 @@
 		end
 
 	------------------------------------------------------------------------------------------------
-	--amount add
+	--amount add ~roskash
+		if (Details222.Roskash[sourceSerial]) then
+			local rSourceSerial, rSourceName, rSourceFlags = unpack(Details222.Roskash[sourceSerial])
+			local roskashActor = damage_cache[rSourceSerial]
+
+			if (not roskashActor) then
+				roskashActor = _current_damage_container:PegarCombatente(rSourceSerial, rSourceName, rSourceFlags, true)
+			end
+
+			if (roskashActor) then
+				roskashActor.extra_bar = roskashActor.extra_bar + (amount * 0.14)
+			end
+		end
 
 		--actor owner (if any)
 		if (ownerActor) then --se for dano de um Pet
@@ -2447,6 +2459,10 @@
 			sourceSerial = ""
 		end
 
+		if (spellId == 395152) then --~roskash
+			Details222.Roskash[targetSerial] = {sourceSerial, sourceName, sourceFlags}
+		end
+
 	------------------------------------------------------------------------------------------------
 	--spell reflection
 		if (reflection_spellid[spellId]) then --~reflect
@@ -2731,6 +2747,10 @@
 				return
 			end
 
+			if (spellid == 395152) then --~roskash
+				Details222.Roskash[alvo_serial] = {sourceSerial, sourceName, sourceFlags}
+			end
+
 			if (sourceName == alvo_name and raid_members_cache [sourceSerial] and _in_combat) then
 				--call record buffs uptime
 				parser:add_buff_uptime (token, time, sourceSerial, sourceName, sourceFlags, alvo_serial, alvo_name, alvo_flags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_REFRESH")
@@ -2800,36 +2820,40 @@
 		end
 
 		if (tipo == "BUFF") then
-				if (spellid == 272790 and cacheAnything.track_hunter_frenzy) then --hunter pet Frenzy spellid
-					if (not pet_frenzy_cache[sourceName]) then
-						return
-					end
-					parser:add_buff_uptime(token, time, sourceSerial, sourceName, sourceFlags, sourceSerial, sourceName, sourceFlags, 0x0, spellid, spellName, "BUFF_UPTIME_OUT")
-					pet_frenzy_cache[sourceName] = nil
+			if (spellid == 395152) then --~roskash
+				Details222.Roskash[targetSerial] = nil
+			end
+
+			if (spellid == 272790 and cacheAnything.track_hunter_frenzy) then --hunter pet Frenzy spellid
+				if (not pet_frenzy_cache[sourceName]) then
 					return
 				end
+				parser:add_buff_uptime(token, time, sourceSerial, sourceName, sourceFlags, sourceSerial, sourceName, sourceFlags, 0x0, spellid, spellName, "BUFF_UPTIME_OUT")
+				pet_frenzy_cache[sourceName] = nil
+				return
+			end
 
-				if (sourceName == targetName and raid_members_cache [sourceSerial] and _in_combat) then
-					--call record buffs uptime
-					parser:add_buff_uptime (token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_OUT")
-				elseif (container_pets [sourceSerial] and container_pets [sourceSerial][2] == targetSerial) then
-					--um pet colocando uma aura do dono
-					parser:add_buff_uptime (token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_OUT")
+			if (sourceName == targetName and raid_members_cache [sourceSerial] and _in_combat) then
+				--call record buffs uptime
+				parser:add_buff_uptime (token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_OUT")
+			elseif (container_pets [sourceSerial] and container_pets [sourceSerial][2] == targetSerial) then
+				--um pet colocando uma aura do dono
+				parser:add_buff_uptime (token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_OUT")
 
-				elseif (buffs_to_other_players[spellid]) then
-					parser:add_buff_uptime(token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_OUT")
+			elseif (buffs_to_other_players[spellid]) then
+				parser:add_buff_uptime(token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, "BUFF_UPTIME_OUT")
+			end
+
+			if (spellid == SPELLID_MONK_GUARD) then
+				--BfA monk talent
+				if (monk_guard_talent [sourceSerial]) then
+					local damage_prevented = monk_guard_talent [sourceSerial] - (amount or 0)
+					parser:heal (token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, spellSchool, damage_prevented, ceil (amount or 0), 0, 0, true)
 				end
 
-				if (spellid == SPELLID_MONK_GUARD) then
-					--BfA monk talent
-					if (monk_guard_talent [sourceSerial]) then
-						local damage_prevented = monk_guard_talent [sourceSerial] - (amount or 0)
-						parser:heal (token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, alvo_flags2, spellid, spellName, spellSchool, damage_prevented, ceil (amount or 0), 0, 0, true)
-					end
-
-				elseif (spellid == 388007 or spellid == 388011) then --buff: bleesing of the summer
-					cacheAnything.paladin_vivaldi_blessings[targetSerial] = nil
-				end
+			elseif (spellid == 388007 or spellid == 388011) then --buff: bleesing of the summer
+				cacheAnything.paladin_vivaldi_blessings[targetSerial] = nil
+			end
 
 			------------------------------------------------------------------------------------------------
 			--shield overheal
@@ -5431,22 +5455,27 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 	end
 
-	function Details.parser_functions:PLAYER_SPECIALIZATION_CHANGED()
-		--some parts of details! does call this function, check first for past expansions
-		if (detailsFramework.IsTimewalkWoW()) then
-			return
-		end
-
+	function Details:RefreshPlayerSpecialization()
 		local specIndex = detailsFramework.GetSpecialization()
 		if (specIndex) then
 			local specID = detailsFramework.GetSpecializationInfo(specIndex)
 			if (specID and specID ~= 0) then
 				local guid = UnitGUID("player")
 				if (guid) then
-					Details.cached_specs [guid] = specID
+					Details.cached_specs[guid] = specID
+					Details.playerspecid = specID
 				end
 			end
 		end
+	end
+
+	function Details.parser_functions:PLAYER_SPECIALIZATION_CHANGED()
+		--some parts of details! does call this function, check first for past expansions
+		if (detailsFramework.IsTimewalkWoW()) then
+			return
+		end
+
+		Details:RefreshPlayerSpecialization()
 
 		if (IsInGroup() or IsInRaid()) then
 			if (Details.SendTalentTimer and not Details.SendTalentTimer:IsCancelled()) then
@@ -5934,18 +5963,99 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	end
 
 	local parserDebug = {}
-	function Details.OnParserEventDebug()
-		local time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12 = CombatLogGetCurrentEventInfo()
+	function Details.OnParserEventDebug()																											    --buffs: spellschool, auraType, amount, arg1, arg2, arg3
+		local time, token, hidding, sourceSerial, sourceName, sourceFlags, who_flags2, targetSerial, targetName, targetFlags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5 = CombatLogGetCurrentEventInfo()
 
 		if (not parserDebug[token]) then
 			parserDebug[token] = true
 			print(token)
 		end
 
+		if ( spellId == 409632 ) then
+			--print(who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5)
+		elseif( spellId == 395160 )  then
+			--print(who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5)
+		end
+
+		if (token == "SPELL_DAMAGE") then
+			if (A13 ~= nil or unknown1 ~= nil or unknown2 ~= nil or unknown3 ~= nil or unknown4 ~= nil or unknown5) then
+				--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)	
+			end
+			--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)
+
+			if (spellName == "Fate Mirror") then
+				--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)
+			end
+		end
+
+		if (token == "SPELL_AURA_APPLIED") then
+			--print(spellName)
+		end
+
 		--local func = token_list[token]
 		--if (func) then
-		--	return func(nil, token, time, who_serial, who_name, who_flags, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
+		--	return func(nil, token, time, who_serial, who_name, who_flags, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
 		--end
+
+		--[=[ getspellinfo
+			["1"] = "Spatial Paradox", buff
+			["3"] = 5199645,
+			["4"] = 0,
+			["5"] = 0,
+			["6"] = 100,
+			["7"] = 406789,
+			["8"] = 5199645,
+
+			["1"] = "Spatial Paradox", buff
+			["3"] = 5199645,
+			["4"] = 0,
+			["5"] = 0,
+			["6"] = 60,
+			["7"] = 406732,
+			["8"] = 5199645,
+
+			["1"] = "Ebon Might", --spell cast start
+			["3"] = 5061347,
+			["4"] = 1473,
+			["5"] = 0,
+			["6"] = 0,
+			["7"] = 395152,
+			["8"] = 5061347,			
+		--]=]
+
+		if (sourceSerial == UnitGUID("player")) then
+			GLOB = GLOB or {}
+			--table.insert(GLOB, {time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18})
+			--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)	
+		end
+
+		--two spells triggering _support
+		--404908,"Fate Mirror"
+		--395152,"Ebon Might"
+
+		--SPELL_DAMAGE_SUPPORT on spellId 395152 spellname "Ebon Might", only seens to exists in the offline version of the combat log
+
+		if (spellId == 395152) then --Ebon Might "cast start" and "buff applyed"
+			--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5)
+		end
+
+		if (spellName == "Ebon Might") then
+			--6/30 14:19:19.299  SPELL_AURA_REMOVED,Player-5764-00018FF1,"Termøhead-Iridikron",0x518,0x0,Player-5764-0001977A,"Drgndeesnutz-Fyrakk",0x518,0x0,395152,"Ebon Might",0xc,BUFF
+			local spellschool, auraType, amount = A3, A4, A5
+			print(token, spellName, sourceName, targetName, spellschool, auraType, amount, A6, A7, A8, A9, A10)
+		end
+
+		if (token == "SPELL_CAST_START") then
+			if (sourceSerial == UnitGUID("player")) then
+			--print(token, spellName, spellId)
+			end
+		end
+
+		--Prescience, Fate Mirror, Ebon Might, Breath of Eons, Shifting Sands
+
+		--offline cleu:
+		--6/30 14:25:28.988  SPELL_DAMAGE,Player-5764-0001609B,"Mikito-Fyrakk",0x518,0x0,Creature-0-5770-2444-8-198594-00009DF6EF,"Cleave Training Dummy",0x30a28,0x0,44425,"Arcane Barrage",0x40,0000000000000000,0000000000000000,0,0,0,0,0,0,-1,0,0,0,0.00,0.00,2112,0.0000,0,18252,18251,-1,64,0,0,0,nil,nil,nil
+		--6/30 14:25:28.988  SPELL_DAMAGE_SUPPORT,Player-5764-0001609B,"Mikito-Fyrakk",0x518,0x0,Creature-0-5770-2444-8-198594-00009DF6EF,"Cleave Training Dummy",0x30a28,0x0,395152,"Ebon Might",0xc,0000000000000000,0000000000000000,0,0,0,0,0,0,-1,0,0,0,0.00,0.00,2112,0.0000,0,2572,2571,-1,64,0,0,0,nil,nil,nil,Player-5764-0001FACE
 	end
 
 	function Details.OnParserEventClassicEra()
@@ -5994,11 +6104,11 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		}
 		Details.parser_frame:SetScript("OnEvent", Details.OnParserEventClassicEra)
 	else
-		--if ("I'm debugging something") then
-		--	Details.parser_frame:SetScript("OnEvent", Details.OnParserEventDebug)
-		--else
+		if (false and "I'm debugging something") then
+			Details.parser_frame:SetScript("OnEvent", Details.OnParserEventDebug)
+		else
 			Details.parser_frame:SetScript("OnEvent", Details.OnParserEvent)
-		--end
+		end
 	end
 
 	function Details:UpdateParser()
@@ -6093,6 +6203,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		Details:Destroy(cacheAnything.paladin_vivaldi_blessings)
 		Details:Destroy(cacheAnything.rampage_cast_amount)
+		Details:Destroy(Details222.Roskash) --~roskash
 
 		cacheAnything.track_hunter_frenzy = Details.combat_log.track_hunter_frenzy
 
