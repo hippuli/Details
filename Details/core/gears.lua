@@ -1678,7 +1678,7 @@ function Details.Database.StoreEncounter(combat)
 			bossData.time_incombat = bossData.time_incombat + encounterElapsedTime
 
 			--player best dps
-			local player = combat(DETAILS_ATTRIBUTE_DAMAGE, UnitName("player"))
+			local player = combat(DETAILS_ATTRIBUTE_DAMAGE, Details.playername)
 			if (player) then
 				local playerDps = player.total / encounterElapsedTime
 				if (playerDps > bossData.dps_best) then
@@ -1758,7 +1758,7 @@ function Details.Database.StoreEncounter(combat)
 						player_name = player_name .. "-" .. player_realm
 					end
 
-					local _, _, class = UnitClass(player_name)
+					local _, _, class = Details:GetUnitClassFull(player_name)
 
 					local damage_actor = damage_container_pool [damage_container_hash [player_name]]
 					if (damage_actor) then
@@ -1771,7 +1771,7 @@ function Details.Database.StoreEncounter(combat)
 						player_name = player_name .. "-" .. player_realm
 					end
 
-					local _, _, class = UnitClass(player_name)
+					local _, _, class = Details:GetUnitClassFull(player_name)
 
 					local heal_actor = healing_container_pool [healing_container_hash [player_name]]
 					if (heal_actor) then

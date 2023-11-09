@@ -458,7 +458,7 @@ end
 			Details222.GuessSpecSchedules.Schedules[#Details222.GuessSpecSchedules.Schedules+1] = newTimer
 		end
 
-		local _, engClass = UnitClass(actorName or "")
+		local engClass = Details:GetUnitClass(actorName or "")
 
 		if (engClass) then
 			actorObject.classe = engClass
@@ -784,7 +784,7 @@ end
 
 		--check ownership
 		if (petOwnerObject and Details.immersion_pets_on_solo_play) then
-			if (UnitIsUnit("player", petOwnerObject.nome)) then
+			if (Details.playername == petOwnerObject.nome) then
 				if (not Details.in_group) then
 					newActor.grupo = true
 				end
