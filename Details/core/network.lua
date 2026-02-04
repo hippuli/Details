@@ -3,6 +3,9 @@
 	local Loc = LibStub("AceLocale-3.0"):GetLocale( "Details" )
 	local _
 
+	---@type detailsframework
+	local detailsFramework = DetailsFramework
+
 	--register namespace
 	Details.network = {}
 
@@ -73,21 +76,154 @@
 	local registredPlugins = {}
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+	--snipers
+	if (C_ChatInfo) then
+		local cooldownDMPE = 0
+		local prefixesToSnipe = {
+			["DMPE"] = function(commEventFrame, event, prefix, text, channel, sender, target, zoneChannelId, localId, name, instanceId) --details main extension
+				---@diagnostic disable-next-line: undefined-global
+				if (DetailsMythicPlus) then
+					return --addon installed, do not process
+				end
+
+				sender = Ambiguate(sender, "none")
+				--decode the data
+				if (C_EncodingUtil) then
+					text = C_EncodingUtil.DecodeBase64(text)
+					if (text) then
+						---@diagnostic disable-next-line: undefined-global
+						text = C_EncodingUtil.DecompressString(text, Enum.CompressionMethod.Deflate)
+						if (text) then
+							local dataPrefix = text:match("^(.-),")
+							if (dataPrefix == "L") then --ProcessLikePlayer function in DMP
+								text = text:sub(#dataPrefix + 2) --remove the prefix from the text
+								local data = C_EncodingUtil.DeserializeCBOR(text)
+								if (data) then
+									local playerLiked = data.playerLiked
+									if (playerLiked) then
+										if (UnitIsUnit("player", playerLiked)) then
+											if (cooldownDMPE + 300 > GetTime()) then
+												return --on cooldown
+											end
+											Details:Msg("Someone gave you a 'GG, Well Played!' on Details! Mythic Plus addon (get from CurseForge or Wago).")
+											cooldownDMPE = GetTime()
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end,
+		}
+
+        ---@diagnostic disable-next-line: undefined-field
+	    for i = 1, #prefixesToSnipe do
+			local prefix = prefixesToSnipe[i]
+			C_ChatInfo.RegisterAddonMessagePrefix(prefix)
+	    end
+
+	    local onReceiveComm = function(self, event, prefix, text, channel, sender, target, zoneChannelId, localId, name, instanceId)
+		    local callbackFunc = prefixesToSnipe[prefix]
+		    if (callbackFunc) then
+			    xpcall(callbackFunc, geterrorhandler(), self, event, prefix, text, channel, sender, target, zoneChannelId, localId, name, instanceId)
+		    end
+	    end
+
+	    local commEventFrame = CreateFrame("frame")
+		commEventFrame:RegisterEvent("CHAT_MSG_ADDON")
+		commEventFrame:SetScript("OnEvent", onReceiveComm)
+	end
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --comm functions
+
+---@class talenttierinfo : table
+---@field isExceptional boolean
+---@field talentID number
+---@field known boolean
+---@field maxRank number
+---@field hasGoldBorder boolean
+---@field tier number
+---@field selected boolean
+---@field icon number
+---@field grantedByAura boolean
+---@field meetsPreviewPrereq boolean
+---@field previewRank number
+---@field meetsPrereq boolean
+---@field name string
+---@field isPVPTalentUnlocked boolean
+---@field column number
+---@field rank number
+---@field available boolean
+---@field spellID number
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --item level
+
+	local getHorizontalTalentsAsString = function()
+		local talents = ""
+		local talentGroup = C_SpecializationInfo.GetActiveSpecGroup()
+
+		if (DetailsFramework.IsPandaWow()) then
+			for tier = 1, MAX_NUM_TALENT_TIERS do
+				local tierAvailable, selectedTalent, tierUnlockLevel = GetTalentTierInfo(tier, 1, false)
+
+				if (selectedTalent) then
+					local talentInfoQuery = {}
+					talentInfoQuery.tier = tier
+					talentInfoQuery.column = selectedTalent
+					talentInfoQuery.groupIndex = talentGroup
+					talentInfoQuery.isInspect = false
+					talentInfoQuery.target = "player"
+
+					---@type talenttierinfo
+					local talentInfo = C_SpecializationInfo.GetTalentInfo(talentInfoQuery)
+					if (talentInfo) then
+						local talentId = talentInfo.talentID
+						talents = talents .. "" .. talentId .. ","
+					end
+				end
+			end
+		else
+			for i = 1, 7 do
+				for o = 1, 3 do
+					local talentID, name, texture, selected, available = GetTalentInfo(i, o, 1)
+					--print("talentID:", talentID, "name:", name, "texture:", texture, "selected:", selected, "available:", available)
+					if (talentID) then
+						if (selected) then
+							talents = "" .. talentID .. ","
+							break
+						end
+					end
+				end
+			end
+		end
+
+		--remove the comma after the last talent id
+		if (talents:sub(-1) == ",") then
+			talents = talents:sub(1, -2)
+		end
+
+		return talents
+	end
+
+	---send item level data to the group the player is in
+	---@param self details
+	---@return nil
 	function Details:SendCharacterData()
 		--only send if in group
 		if (not IsInGroup() and not IsInRaid()) then
 			return
 		end
 
-		if (DetailsFramework.IsTimewalkWoW()) then
+		if (DetailsFramework.IsTimewalkWoW() and not DetailsFramework.IsPandaWow()) then
 			return
 		end
 
-		--check the player level
+		--check the player level to be at least 60
+		---@type number
 		local playerLevel = UnitLevel("player")
 		if (not playerLevel) then
 			return
@@ -97,23 +233,52 @@
 
 		--delay to sent information again
 		if (Details.LastPlayerInfoSync and Details.LastPlayerInfoSync + 10 > GetTime()) then
-			--do not send info if recently sent
+			--do not send info if it was recently sent
 			return
 		end
 
-		--get player item level
+		--get the equipped player item level
 		local overall, equipped = GetAverageItemLevel()
 
+		local talentsAsString = ""
+
 		--get player talents
-		local talents = {}
-		for i = 1, 7 do
-			for o = 1, 3 do
-				local talentID, name, texture, selected, available = GetTalentInfo(i, o, 1)
-				if (selected) then
-					tinsert(talents, talentID)
-					break
-				end
-			end
+		--depending on the game version, the talent API is different
+
+		--vertical tree
+		if (DetailsFramework.IsClassicWow()) then --vanilla
+			talentsAsString = ""
+
+		elseif (DetailsFramework.IsTBCWow()) then --burning crusade
+			talentsAsString = ""
+
+		elseif (DetailsFramework.IsWotLKWow()) then --wrath of the lich king
+			talentsAsString = ""
+
+		elseif (DetailsFramework.IsCataWow()) then --cataclysm
+			talentsAsString = ""
+		end
+
+		--horizontal pick one
+		if (DetailsFramework.IsPandaWow()) then
+			talentsAsString = getHorizontalTalentsAsString()
+
+		elseif (DetailsFramework.IsWarlordsWow()) then
+			talentsAsString = getHorizontalTalentsAsString()
+
+		elseif (DetailsFramework.IsLegionWow()) then
+			talentsAsString = getHorizontalTalentsAsString()
+
+		elseif (DetailsFramework.IsBFAWow()) then
+			talentsAsString = getHorizontalTalentsAsString()
+
+		elseif (DetailsFramework.IsShadowlandsWow()) then
+			talentsAsString = getHorizontalTalentsAsString()
+		end
+
+		--vertical, horizonal tree
+		if (DetailsFramework.IsDragonflightAndBeyond()) then
+			talentsAsString = detailsFramework:GetDragonlightTalentString()
 		end
 
 		--get the spec ID
@@ -130,13 +295,13 @@
 		local serial = UnitGUID("player")
 
 		if (IsInRaid()) then
-			Details:SendRaidData(CONST_ITEMLEVEL_DATA, serial, equipped, talents, currentSpec)
+			Details:SendRaidData(CONST_ITEMLEVEL_DATA, serial, equipped, talentsAsString, currentSpec)
 			if (Details.debugnet) then
 				Details:Msg("(debug) sent ilevel data to Raid")
 			end
 
 		elseif (IsInGroup()) then
-			Details:SendPartyData(CONST_ITEMLEVEL_DATA, serial, equipped, talents, currentSpec)
+			Details:SendPartyData(CONST_ITEMLEVEL_DATA, serial, equipped, talentsAsString, currentSpec)
 			if (Details.debugnet) then
 				Details:Msg("(debug) sent ilevel data to Party")
 			end
@@ -232,7 +397,7 @@
 		local dataCompressed = LibDeflate:DecodeForWoWAddonChannel(data)
 		local dataSerialized = LibDeflate:DecompressDeflate(dataCompressed)
 		local dataTable = {Details:Deserialize(dataSerialized)}
-		tremove(dataTable, 1)
+		table.remove(dataTable, 1)
 		local dataTable = dataTable[1]
 
 		local playerRole = dataTable[1]
@@ -344,7 +509,7 @@
 				--return false
 			end
 
-			local IDs = Details.storage:GetIDsToGuildSync()
+			local IDs = Details222.storage.GetIDsToGuildSync()
 
 			if (IDs and IDs [1]) then
 				local from = UnitName("player")
@@ -356,7 +521,7 @@
 			return true
 
 		elseif (type == "L") then --RoC - the player received the IDs list and send back which IDs he doesn't have
-			local missingIds = Details.storage:CheckMissingIDsToGuildSync(data)
+			local missingIds = Details222.storage.CheckMissingIDsToGuildSync(data)
 
 			if (missingIds and missingIds[1]) then
 				local from = UnitName ("player")
@@ -366,7 +531,7 @@
 			return true
 
 		elseif (type == "G") then --RoS - the 'server' send the encounter dps table to the player which requested
-			local encounterData = Details.storage:BuildEncounterDataToGuildSync(data)
+			local encounterData = Details222.storage.BuildEncounterDataToGuildSync(data)
 
 			if (encounterData and encounterData[1]) then
 				local task = C_Timer.NewTicker(4, function(task)
@@ -395,14 +560,9 @@
 			return true
 
 		elseif (type == "A") then --RoC - the player received the dps table and should now add it to the db
-			Details.storage:AddGuildSyncData(data, player)
+			Details222.storage.AddGuildSyncData(data, player)
 			return true
 		end
-	end
-
-	function Details.network.HandleMissData(player, realm, coreVersion, data)
-		--soul rip from akaari's soul (LEGION ONLY)
-		--deprecated
 	end
 
 	function Details.network.ReceivedEnemyPlayer(player, realm, coreVersion, data)
@@ -424,8 +584,6 @@
 
 		[CONST_GUILD_SYNC] = Details.network.GuildSync,
 
-		[CONST_ROGUE_SR] = Details.network.HandleMissData, --soul rip from akaari's soul (LEGION ONLY)
-
 		[CONST_PVP_ENEMY] = Details.network.ReceivedEnemyPlayer,
 
 		[DETAILS_PREFIX_COACH] = Details.network.Coach, --coach feature
@@ -444,7 +602,7 @@
 			return
 		end
 
-		tremove(deserializedTable, 1)
+		table.remove(deserializedTable, 1)
 		local prefix, player, realm, coreVersion, arg6, arg7, arg8, arg9 = unpack(deserializedTable)
 		player = source
 

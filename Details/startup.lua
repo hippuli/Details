@@ -1,19 +1,20 @@
-
---[=[
-	Details startup file
-	The function Details:StartMeUp() is called when the addon is fully loaded with saved variables and profiles
---]=]
-
 local Loc = _G.LibStub("AceLocale-3.0"):GetLocale("Details")
 local _
 local tocName, Details222 = ...
+local detailsFramework = DetailsFramework
+
+local GetSpecialization = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization or GetSpecialization
+local GetSpecializationInfo = C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo or
+GetSpecializationInfo
 
 --start funtion
-function Details:StartMeUp()
+function Details222.StartUp.StartMeUp()
 	if (Details.AndIWillNeverStop) then
 		return
 	end
 	Details.AndIWillNeverStop = true
+
+	Details.damage_meter_type = 0 --disable blizzard toggle
 
 	--note: this runs after profile loaded
 
@@ -21,58 +22,116 @@ function Details:StartMeUp()
 	Details.lastArenaStartTime = GetTime()
 	Details.lastBattlegroundStartTime = GetTime()
 
+	if (PVPMatchResults and detailsFramework.IsWarWow()) then
+		PVPMatchResults:HookScript("OnShow", function(self)
+			if (not DetailsOpenArenaSummaryButtonOnPVPMatchResults) then
+				local detailsButton = CreateFrame("button", "DetailsOpenArenaSummaryButtonOnPVPMatchResults", self,
+					"UIPanelButtonTemplate")
+				detailsButton:SetPoint("topright", self, "topright", -16, -16)
+				detailsButton:SetSize(200, 30)
+				detailsButton:SetText("Open Details Breakdown")
+				detailsButton:SetScript("OnClick", function()
+					Details:OpenArenaSummaryWindow()
+					Details:OpenArenaSummaryWindow()
+				end)
+
+				--a label below the button with the text "under development"
+				local label = detailsButton:CreateFontString(nil, "overlay", "GameFontNormalSmall")
+				label:SetPoint("top", detailsButton, "bottom", 0, -2)
+				label:SetText("Under Development")
+				label:SetTextColor(1, 0.5, 0.5, 1)
+				label:SetAlpha(0.5)
+			end
+		end)
+	end
+
 	--save the time when the addon finished loading
 	Details.AddOnStartTime = GetTime()
 	function Details.GetStartupTime()
 		return Details.AddOnStartTime or GetTime()
 	end
 
+	--load custom spells on login
 	C_Timer.After(3, function()
-		--load custom spells on login
 		Details:FillUserCustomSpells()
 	end)
 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
---row single click, this determines what happen when the user click on a bar
+	Details.challengeModeMapId = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID and
+	C_ChallengeMode.GetActiveChallengeMapID()
+
+	if (Details.slashk_dnd) then
+		LIB_OPEN_RAID_MYTHIC_PLUS_DND = true
+	end
+
+	-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+	--row single click, this determines what happen when the user click on a bar
 
 	--single click row function replace
-		--damage, dps, damage taken, friendly fire
-			Details.row_singleclick_overwrite[1] = {true, true, true, true, Details.atributo_damage.ReportSingleFragsLine, Details.atributo_damage.ReportEnemyDamageTaken, Details.atributo_damage.ReportSingleVoidZoneLine, Details.atributo_damage.ReportSingleDTBSLine}
-		--healing, hps, overheal, healing taken
-			Details.row_singleclick_overwrite[2] = {true, true, true, true, false, Details.atributo_heal.ReportSingleDamagePreventedLine}
-		--mana, rage, energy, runepower
-			Details.row_singleclick_overwrite[3] = {true, true, true, true} --missing other resources and alternate power
-		--cc breaks, ress, interrupts, dispells, deaths
-			Details.row_singleclick_overwrite[4] = {true, true, true, true, Details.atributo_misc.ReportSingleDeadLine, Details.atributo_misc.ReportSingleCooldownLine, Details.atributo_misc.ReportSingleBuffUptimeLine, Details.atributo_misc.ReportSingleDebuffUptimeLine}
+	--damage, dps, damage taken, friendly fire
+	Details.row_singleclick_overwrite[1] = { true, true, true, true, Details.atributo_damage.ReportSingleFragsLine,
+		Details.atributo_damage.ReportEnemyDamageTaken, Details.atributo_damage.ReportSingleVoidZoneLine, Details
+		.atributo_damage.ReportSingleDTBSLine }
+	--healing, hps, overheal, healing taken
+	Details.row_singleclick_overwrite[2] = { true, true, true, true, false, Details.atributo_heal
+		.ReportSingleDamagePreventedLine }
+	--mana, rage, energy, runepower
+	Details.row_singleclick_overwrite[3] = { true, true, true, true } --missing other resources and alternate power
+	--cc breaks, ress, interrupts, dispells, deaths
+	Details.row_singleclick_overwrite[4] = { true, true, true, true, Details.atributo_misc.ReportSingleDeadLine, Details
+		.atributo_misc.ReportSingleCooldownLine, Details.atributo_misc.ReportSingleBuffUptimeLine, Details.atributo_misc
+		.ReportSingleDebuffUptimeLine }
 
-		function Details:ReplaceRowSingleClickFunction(attribute, subAttribute, func)
-			assert(type(attribute) == "number" and attribute >= 1 and attribute <= 4, "ReplaceRowSingleClickFunction expects a attribute index on #1 argument.")
-			assert(type(subAttribute) == "number" and subAttribute >= 1 and subAttribute <= 10, "ReplaceRowSingleClickFunction expects a sub attribute index on #2 argument.")
-			assert(type(func) == "function", "ReplaceRowSingleClickFunction expects a function on #3 argument.")
+	function Details:ReplaceRowSingleClickFunction(attribute, subAttribute, func)
+		assert(type(attribute) == "number" and attribute >= 1 and attribute <= 4,
+			"ReplaceRowSingleClickFunction expects a attribute index on #1 argument.")
+		assert(type(subAttribute) == "number" and subAttribute >= 1 and subAttribute <= 10,
+			"ReplaceRowSingleClickFunction expects a sub attribute index on #2 argument.")
+		assert(type(func) == "function", "ReplaceRowSingleClickFunction expects a function on #3 argument.")
 
-				Details.row_singleclick_overwrite[attribute][subAttribute] = func
-			return true
+		Details.row_singleclick_overwrite[attribute][subAttribute] = func
+		return true
+	end
+
+	Details.click_to_report_color = { 1, 0.8, 0, 1 }
+	--death tooltip function, exposed for 3rd party customization
+	--called when the mouse hover over a player line when displaying deaths
+	--the function called receives 4 parameters: instanceObject, lineFrame, combatObject, deathTable
+	--@instance: the details! object of the window showing the deaths
+	--@lineFrame: the frame to setpoint your frame
+	--@combatObject: the combat itself
+	--@deathTable: a table containing all the information about the player's death
+	Details.ShowDeathTooltipFunction = Details.ShowDeathTooltip
+
+	if (C_CVar) then
+		if (not InCombatLockdown() and DetailsFramework.IsDragonflightAndBeyond()) then --disable for releases
+			--C_CVar.SetCVar("cameraDistanceMaxZoomFactor", 2.6)
 		end
+	end
 
-		Details.click_to_report_color = {1, 0.8, 0, 1}
+	-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+	--initialize
 
-		--death tooltip function, exposed for 3rd party customization
-		--called when the mouse hover over a player line when displaying deaths
-		--the function called receives 4 parameters: instanceObject, lineFrame, combatObject, deathTable
-		--@instance: the details! object of the window showing the deaths
-		--@lineFrame: the frame to setpoint your frame
-		--@combatObject: the combat itself
-		--@deathTable: a table containing all the information about the player's death
-		Details.ShowDeathTooltipFunction = Details.ShowDeathTooltip
+	do
+		--advertising patreon cuz I'm in need, need to make absolute sure this is removed before 11.1.7 goes live
+		local version = GetBuildInfo()
+		if (version == "11.1.7") then
+			--limit this to 10 days to be safe, don't want problems
+			local time = time()
+			local limitTime = 1747072462 --10 days ahead of May 02
+			if (time < limitTime) then
+				Details:Msg("Help support Details! author on Patreon: https://www.patreon.com/terciob")
+			end
+		end
+	end
 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
---initialize
+	--make an encounter journal cache. the cache will load before this if any function tries to get information from the cache
+	C_Timer.After(3, Details222.EJCache.CreateEncounterJournalDump)
 
 	--plugin container
 	Details:CreatePluginWindowContainer()
 	Details:InitializeForge() --to install into the container plugin
 	Details:InitializeRaidHistoryWindow()
-	--Details:InitializeOptionsWindow()
+	--Details:InitializeOptionsWindow() --debug, uncoment to open options window on startup
 
 	C_Timer.After(2, function()
 		Details:InitializeAuraCreationWindow()
@@ -84,12 +143,29 @@ function Details:StartMeUp()
 	Details:InitializePlaterIntegrationWindow()
 	Details:InitializeMacrosWindow()
 
+	if (Details.InitializeEncounterSwapper) then
+		Details:InitializeEncounterSwapper()
+	end
+
+	Details222.CreateAllDisplaysFrame()
+
+	--Details222.LoadCommentatorFunctions()
+
+	if not detailsFramework.IsAddonApocalypseWow() then
+		Details222.AuraScan.FindAndIgnoreWorldAuras()
+	end
+
+	Details222.Notes.RegisterForOpenRaidNotes()
+
 	if (Details.ocd_tracker.show_options) then
 		Details:InitializeCDTrackerWindow()
+	else
+		--Details:InitializeCDTrackerWindow() --enabled for v11 beta, debug openraid
 	end
 	--/run Details.ocd_tracker.show_options = true; ReloadUI()
 	--custom window
 	Details.custom = Details.custom or {}
+	--Details222.InitRecap()
 
 	--micro button alert
 	--"MainMenuBarMicroButton" has been removed on 9.0
@@ -106,13 +182,13 @@ function Details:StartMeUp()
 	Details:CreateCopyPasteWindow()
 	Details.CreateCopyPasteWindow = nil
 
-	--start instances
+	--guarantee one window is open after each reload
 	if (Details:GetNumInstancesAmount() == 0) then
 		Details:CreateInstance()
 	end
 	Details:GetLowerInstanceNumber()
 
-	--start time machine
+	--start time machine, the time machine controls the activity time of players
 	Details222.TimeMachine.Start()
 
 	--update abbreviation shortcut
@@ -122,7 +198,6 @@ function Details:StartMeUp()
 	Details.atributo_misc:UpdateSelectedToKFunction()
 	Details.atributo_custom:UpdateSelectedToKFunction()
 
-	--start instances updater
 	Details:CheckSwitchOnLogon()
 
 	function Details:ScheduledWindowUpdate(bIsForced)
@@ -130,7 +205,8 @@ function Details:StartMeUp()
 			return
 		end
 		Details.scheduled_window_update = nil
-		Details:RefreshMainWindow(-1, true)
+		local bForceRefresh = true
+		Details:RefreshMainWindow(-1, bForceRefresh)
 	end
 
 	function Details:ScheduleWindowUpdate(time, bIsForced)
@@ -138,10 +214,13 @@ function Details:StartMeUp()
 			Details.Schedules.Cancel(Details.scheduled_window_update)
 			Details.scheduled_window_update = nil
 		end
-		Details.scheduled_window_update = Details.Schedules.NewTimer(time or 1, Details.ScheduledWindowUpdate, Details, bIsForced)
+		Details.scheduled_window_update = Details.Schedules.NewTimer(time or 1, Details.ScheduledWindowUpdate, Details,
+			bIsForced)
 	end
 
-	Details:RefreshMainWindow(-1, true)
+	--do the first refresh here, not waiting for the regular refresh schedule to kick in
+	local bForceRefresh = true
+	Details:RefreshMainWindow(-1, bForceRefresh)
 	Details:RefreshUpdater()
 
 	for instanceId = 1, Details:GetNumInstances() do
@@ -170,11 +249,16 @@ function Details:StartMeUp()
 		local refreshAllInstances = -1
 		local forceRefresh = true
 		Details:RefreshMainWindow(refreshAllInstances, forceRefresh)
-		local lowerInstance = Details:GetLowerInstanceNumber()
+		local lowerInstanceId = Details:GetLowerInstanceNumber()
 
 		for id = 1, Details:GetNumInstances() do
 			local instance = Details:GetInstance(id)
 			if (instance:IsEnabled()) then
+				if (instance.modo == 3 and Details.auto_change_to_standard) then --everything
+					instance.LastModo = 2                            --standard
+					instance.modo = 2                                --standard
+				end
+
 				--refresh wallpaper
 				if (instance.wallpaper.enabled) then
 					instance:InstanceWallpaper(true)
@@ -183,7 +267,7 @@ function Details:StartMeUp()
 				end
 
 				--refresh desaturated icons if is lower instance because plugins shall have installed their icons at this point
-				if (id == lowerInstance) then
+				if (id == lowerInstanceId) then
 					instance:DesaturateMenu()
 					instance:SetAutoHideMenu(nil, nil, true)
 				end
@@ -191,11 +275,12 @@ function Details:StartMeUp()
 		end
 
 		--after plugins are loaded and they have registered their icons, reorganize them after the start
-		Details.ToolBar:ReorganizeIcons()
+		local justRefreshIcons = true
+		Details.ToolBar:ReorganizeIcons(justRefreshIcons)
 
 		--refresh skin for other windows
-		if (lowerInstance) then
-			for instanceId = lowerInstance+1, Details:GetNumInstances() do
+		if (lowerInstanceId) then
+			for instanceId = lowerInstanceId + 1, Details:GetNumInstances() do
 				local instance = Details:GetInstance(instanceId)
 				if (instance and instance.baseframe and instance.ativa) then
 					instance:ChangeSkin()
@@ -212,8 +297,8 @@ function Details:StartMeUp()
 				Details.Schedules.NewTimer(5, Details.CheckWallpaperAfterStartup, Details)
 			end
 
-			for id = 1, Details.instances_amount do
-				local instance = Details:GetInstance(id)
+			for instanceId = 1, Details.instances_amount do
+				local instance = Details:GetInstance(instanceId)
 				if (instance and instance:IsEnabled()) then
 					if (not instance.wallpaper.enabled) then
 						instance:InstanceWallpaper(false)
@@ -229,6 +314,7 @@ function Details:StartMeUp()
 			Details.CheckWallpaperAfterStartup = nil
 			Details.profile_loaded = nil
 		end
+
 		Details.Schedules.NewTimer(5, Details.CheckWallpaperAfterStartup, Details)
 	end
 
@@ -237,49 +323,62 @@ function Details:StartMeUp()
 	--start garbage collector
 	Details222.GarbageCollector.lastCollectTime = 0
 	Details222.GarbageCollector.intervalTime = 300
-	Details222.GarbageCollector.collectorTimer = Details.Schedules.NewTicker(Details222.GarbageCollector.intervalTime, Details222.GarbageCollector.RestartInternalGarbageCollector)
+	Details222.GarbageCollector.collectorTimer = Details.Schedules.NewTicker(Details222.GarbageCollector.intervalTime,
+		Details222.GarbageCollector.RestartInternalGarbageCollector)
 
 	--player role
 	local UnitGroupRolesAssigned = _G.DetailsFramework.UnitGroupRolesAssigned
 	Details.last_assigned_role = UnitGroupRolesAssigned and UnitGroupRolesAssigned("player")
 
 	--load parser capture options
-		Details:CaptureRefresh()
+	Details:CaptureRefresh()
 
 	--register parser events
-		Details.listener:RegisterEvent("PLAYER_REGEN_DISABLED")
-		Details.listener:RegisterEvent("PLAYER_REGEN_ENABLED")
-		Details.listener:RegisterEvent("UNIT_PET")
+	Details.listener:RegisterEvent("PLAYER_REGEN_DISABLED")
+	Details.listener:RegisterEvent("PLAYER_REGEN_ENABLED")
+	Details.listener:RegisterEvent("UNIT_PET")
 
-		Details.listener:RegisterEvent("GROUP_ROSTER_UPDATE")
-		Details.listener:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+	Details.listener:RegisterEvent("GROUP_ROSTER_UPDATE")
+	Details.listener:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 
-		Details.listener:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-		Details.listener:RegisterEvent("PLAYER_ENTERING_WORLD")
+	Details.listener:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	Details.listener:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-		Details.listener:RegisterEvent("ENCOUNTER_START")
-		Details.listener:RegisterEvent("ENCOUNTER_END")
+	if (C_EventUtils.IsEventValid("SCENARIO_COMPLETED")) then
+		Details.listener:RegisterEvent("SCENARIO_COMPLETED")
+	end
 
-		Details.listener:RegisterEvent("START_TIMER")
-		Details.listener:RegisterEvent("UNIT_NAME_UPDATE")
+	if (detailsFramework.IsAddonApocalypseWow()) then
+		Details.listener:RegisterEvent("PLAYER_IN_COMBAT_CHANGED")
+	end
 
-		Details.listener:RegisterEvent("PLAYER_ROLES_ASSIGNED")
-		Details.listener:RegisterEvent("ROLE_CHANGED_INFORM")
+	Details.listener:RegisterEvent("ENCOUNTER_START")
+	Details.listener:RegisterEvent("ENCOUNTER_END")
 
-		Details.listener:RegisterEvent("UNIT_FACTION")
+	Details.listener:RegisterEvent("START_TIMER")
+	Details.listener:RegisterEvent("UNIT_NAME_UPDATE")
 
-		Details.listener:RegisterEvent("PLAYER_TARGET_CHANGED")
+	Details.listener:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+	Details.listener:RegisterEvent("ROLE_CHANGED_INFORM")
 
-		if (not DetailsFramework.IsTimewalkWoW()) then
-			Details.listener:RegisterEvent("PET_BATTLE_OPENING_START")
-			Details.listener:RegisterEvent("PET_BATTLE_CLOSE")
-			Details.listener:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-			Details.listener:RegisterEvent("PLAYER_TALENT_UPDATE")
-			Details.listener:RegisterEvent("CHALLENGE_MODE_START")
-			Details.listener:RegisterEvent("CHALLENGE_MODE_COMPLETED")
-		end
+	Details.listener:RegisterEvent("UNIT_FACTION")
 
-		Details.parser_frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+	Details.listener:RegisterEvent("PLAYER_TARGET_CHANGED")
+
+	if (not DetailsFramework.IsTimewalkWoW()) then --C_EventUtils.IsEventValid
+		Details.listener:RegisterEvent("PET_BATTLE_OPENING_START")
+		Details.listener:RegisterEvent("PET_BATTLE_CLOSE")
+		Details.listener:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+		Details.listener:RegisterEvent("PLAYER_TALENT_UPDATE")
+		Details.listener:RegisterEvent("CHALLENGE_MODE_START")
+		--Details.listener:RegisterEvent("CHALLENGE_MODE_END") --doesn't exists ingame (only at cleu)
+		Details.listener:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+		Details.listener:RegisterEvent("WORLD_STATE_TIMER_START")
+	end
+
+	if (detailsFramework.IsWarWowOrBelow()) then
+		Details222.parser_frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+	end
 
 	--update is in group
 	Details.details_users = {}
@@ -291,17 +390,17 @@ function Details:StartMeUp()
 	--scan pets
 	Details:SchedulePetUpdate(1)
 
-	--send messages gathered on initialization
+	--send messages gathered on initialization, these messages contain warnings and errors
 	Details.Schedules.NewTimer(10, Details.ShowDelayMsg, Details)
 
-	--send instance open signal
+	--send instance open event for each instance opened
 	for id, instancia in Details:ListInstances() do
 		if (instancia.ativa) then
 			Details:SendEvent("DETAILS_INSTANCE_OPEN", nil, instancia)
 		end
 	end
 
-	--send details startup done signal
+	--send details startup done event, this signal that details is ready to work
 	function Details:AnnounceStartup()
 		Details:SendEvent("DETAILS_STARTED", "SEND_TO_ALL")
 
@@ -311,7 +410,6 @@ function Details:StartMeUp()
 			Details:SendEvent("GROUP_ONLEAVE")
 		end
 
-		Details.last_zone_type = "INIT"
 		Details.parser_functions:ZONE_CHANGED_NEW_AREA()
 		Details.AnnounceStartup = nil
 	end
@@ -323,7 +421,7 @@ function Details:StartMeUp()
 		Details.failed_to_load = nil
 	end
 
-	--announce alpha version
+	--display the version right after the startup, this will fade out after a few seconds
 	function Details:AnnounceVersion()
 		for index, instancia in Details:ListInstances() do
 			if (instancia.ativa) then
@@ -335,7 +433,7 @@ function Details:StartMeUp()
 	--check version
 	Details:CheckVersion(true)
 
-	--restore cooltip anchor position, this is for the custom anchor in the screen
+	--restore cooltip anchor position, this is for the custom anchor in the screen set in the tooltip options
 	DetailsTooltipAnchor:Restore()
 
 	--check is this is the first run ever
@@ -344,27 +442,18 @@ function Details:StartMeUp()
 			Details:AddDefaultCustomDisplays()
 		end
 		Details:FillUserCustomSpells()
+
+		if (C_CVar) then
+			if (not InCombatLockdown() and DetailsFramework.IsDragonflightAndBeyond()) then
+				C_CVar.SetCVar("cameraDistanceMaxZoomFactor", 2.6)
+			end
+		end
 	end
 
 	--check is this is the first run of this version
 	if (Details.is_version_first_run) then
-		local breakdownData = Details.breakdown_spell_tab
-		if (breakdownData) then
-			local spellContainerHeaders = breakdownData.spellcontainer_headers
-			if (spellContainerHeaders) then
-				if (spellContainerHeaders.overheal) then
-					spellContainerHeaders.overheal.enabled = true
-					spellContainerHeaders.overheal.width = 70
-				end
-			end
-
-			local targetContainerHeaders = breakdownData.targetcontainer_headers
-			if (targetContainerHeaders) then
-				if (targetContainerHeaders.overheal) then
-					targetContainerHeaders.overheal.enabled = true
-					targetContainerHeaders.overheal.width = 70
-				end
-			end
+		if (Details.build_counter == 13096) then
+			Details.mythic_plus.autoclose_time = 90
 		end
 
 		local lowerInstanceId = Details:GetLowerInstanceNumber()
@@ -372,8 +461,9 @@ function Details:StartMeUp()
 			lowerInstanceId = Details:GetInstance(lowerInstanceId)
 			if (lowerInstanceId) then
 				--check if there's changes in the size of the news string
-				if (Details.last_changelog_size ~= #Loc["STRING_VERSION_LOG"]) then
+				if (false and Details.last_changelog_size ~= #Loc["STRING_VERSION_LOG"]) then
 					Details.last_changelog_size = #Loc["STRING_VERSION_LOG"]
+
 					if (Details.auto_open_news_window) then
 						C_Timer.After(5, function()
 							Details.OpenNewsWindow()
@@ -383,7 +473,9 @@ function Details:StartMeUp()
 					if (lowerInstanceId) then
 						C_Timer.After(10, function()
 							if (lowerInstanceId:IsEnabled()) then
-								lowerInstanceId:InstanceAlert(Loc ["STRING_VERSION_UPDATE"], {[[Interface\GossipFrame\AvailableQuestIcon]], 16, 16, false}, 60, {Details.OpenNewsWindow}, true)
+								lowerInstanceId:InstanceAlert(Loc["STRING_VERSION_UPDATE"],
+									{ [[Interface\GossipFrame\AvailableQuestIcon]], 16, 16, false }, 60,
+									{ Details.OpenNewsWindow }, true)
 								Details:Msg("A new version has been installed: /details news") --localize-me
 							end
 						end)
@@ -394,6 +486,31 @@ function Details:StartMeUp()
 
 		Details:FillUserCustomSpells()
 		Details:AddDefaultCustomDisplays()
+	end
+
+	if (C_AddOns) then
+		hooksecurefunc(C_AddOns, "LoadAddOn", function(addOnName)
+			if (addOnName == "Blizzard_GarrisonUI") then
+				GarrisonMissionTutorialFrame:HookScript("OnShow", function(self)
+					GarrisonMissionTutorialFrame:Hide()
+				end)
+				GarrisonMissionTutorialFrame:Hide()
+			end
+			if (addOnName == "Blizzard_VoidStorageUI") then
+				VoidStorageBorderFrameMouseBlockFrame:HookScript("OnShow", function(self)
+					VoidStorageBorderFrameMouseBlockFrame:Hide();
+					VoidStoragePurchaseFrame:Hide();
+					VoidStorageBorderFrame.Bg:Hide();
+
+					if (not CanUseVoidStorage()) then
+						VoidStoragePurchaseFrame:Show();
+					end
+				end)
+				VoidStorageBorderFrameMouseBlockFrame:Hide();
+				VoidStoragePurchaseFrame:Hide();
+				VoidStorageBorderFrame.Bg:Hide();
+			end
+		end)
 	end
 
 	local lowerInstanceId = Details:GetLowerInstanceNumber()
@@ -416,7 +533,7 @@ function Details:StartMeUp()
 			--version
 			Details.FadeHandler.Fader(instance._version, 0)
 			instance._version:SetText("Details! " .. Details.userversion .. " (core " .. Details.realversion .. ")")
-			instance._version:SetTextColor(1, 1, 1, .35)
+			instance._version:SetTextColor(1, 1, 1, .95)
 			instance._version:SetPoint("bottomleft", instance.baseframe, "bottomleft", 5, 1)
 
 			if (instance.auto_switch_to_old) then
@@ -428,8 +545,110 @@ function Details:StartMeUp()
 				Details.FadeHandler.Fader(devText, "in", 2)
 				Details.FadeHandler.Fader(instance._version, "in", 2)
 			end
+
 			Details.Schedules.NewTimer(12, Details.FadeStartVersion, Details)
 		end
+	end
+
+	--store the names of all interrupt spells
+	---@type table<string, boolean>
+	Details.InterruptSpellNamesCache = {}
+	if LIB_OPEN_RAID_COOLDOWNS_INFO then
+		for spellId, spellData in pairs(LIB_OPEN_RAID_COOLDOWNS_INFO) do
+			if (spellData.type == 6) then
+				local spellInfo = C_Spell.GetSpellInfo(spellId)
+				if (spellInfo) then
+					Details.InterruptSpellNamesCache[spellInfo.name] = true
+				end
+			end
+		end
+	end
+
+	---used to know if the spell is a crowd control during the parser debuff event.
+	---@type table<string, boolean>
+	Details.CrowdControlSpellNamesCache = {}
+
+	--cache of all spells ids that are used by crowd control effects
+	---@type table<spellid, spellname>
+	Details.CrowdControlSpellIdsCache = {}
+
+	---not in use atm, waiting the unzip of talents string.
+	---@type table<unitname, table<spellname, boolean>>
+	Details.CrowdControlSpellsByUnitCache = {}
+
+	if LIB_OPEN_RAID_COOLDOWNS_INFO then
+		for spellId, spellData in pairs(LIB_OPEN_RAID_COOLDOWNS_INFO) do
+			if (spellData.type == 8) then
+				local spellInfo = C_Spell.GetSpellInfo(spellId)
+				if (spellInfo) then
+					Details.CrowdControlSpellIdsCache[spellId] = spellInfo.name
+					Details.CrowdControlSpellNamesCache[spellInfo.name] = true
+				end
+			end
+		end
+	end
+
+	if LIB_OPEN_RAID_CROWDCONTROL then
+		for spellId, spellData in pairs(LIB_OPEN_RAID_CROWDCONTROL) do
+			local spellInfo = C_Spell.GetSpellInfo(spellId)
+			if (spellInfo and not Details.CrowdControlSpellNamesCache[spellInfo.name]) then
+				Details.CrowdControlSpellIdsCache[spellId] = spellInfo.name
+				Details.CrowdControlSpellNamesCache[spellInfo.name] = true
+			end
+		end
+	end
+
+	local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+	if (openRaidLib) then
+		local t = {}
+		function t.OnUnitUpdate(unitId, unitInfo)
+			--print("open raid update...")
+			local specId = unitInfo.specId
+			local specName = unitInfo.specName
+			local role = unitInfo.role
+			local heroTalentId = unitInfo.heroTalentId
+			local talents = unitInfo.talents
+			local pvpTalents = unitInfo.pvpTalents
+			local class = unitInfo.class  -- = string class eng name 'ROGUE'
+			local classId = unitInfo.classId -- = number
+			local className = unitInfo.className
+			local unitName = unitInfo.name -- = string name without realm
+			local unitNameFull = unitInfo.nameFull -- = string name with realm 'unitName-ServerName'
+
+			for spellId, spellData in pairs(LIB_OPEN_RAID_COOLDOWNS_INFO) do
+				if (spellData.type == 8) then
+					local spellInfo = C_Spell.GetSpellInfo(spellId)
+					if (spellInfo) then
+						Details.CrowdControlSpellsByUnitCache[unitNameFull] = Details.CrowdControlSpellsByUnitCache
+						[unitNameFull] or {}
+						if (not spellData.ignoredIfTalent) then
+							Details.CrowdControlSpellNamesCache[spellInfo.name] = true
+						else
+							--check if the player the talent from spellData.ignoredIfTalent
+							--local unitTalents = openRaidLib.GetSpellIdsFromTalentString(talents)
+							--dumpt(unitTalents)
+							--print("talentId", spellData.ignoredIfTalent)
+							--print("has the talent?", unitTalents[spellData.ignoredIfTalent])
+							break
+						end
+					end
+				end
+			end
+		end
+
+		--registering the callback:
+		openRaidLib.RegisterCallback(t, "UnitInfoUpdate", "OnUnitUpdate")
+
+		--test
+		--[=[
+		C_Timer.After(5, function()
+			local unitName = UnitName("player")
+			local unitInfo = openRaidLib.GetUnitInfo("player")
+			if (unitInfo) then
+				t.OnUnitUpdate("player", unitInfo)
+			end
+		end)
+		--]=]
 	end
 
 	function Details:OpenOptionsWindowAtStart()
@@ -438,6 +657,7 @@ function Details:StartMeUp()
 		--Details:OpenCustomDisplayWindow()
 		--Details:OpenWelcomeWindow()
 	end
+
 	Details.Schedules.NewTimer(2, Details.OpenOptionsWindowAtStart, Details)
 	--Details:OpenCustomDisplayWindow()
 
@@ -445,12 +665,13 @@ function Details:StartMeUp()
 	Details.SafeRun(Details.RegisterMinimap, "Register Minimap Icon", Details)
 
 	--hot corner addon
-	Details.Schedules.NewTimer(5, function() Details.SafeRun(Details.DoRegisterHotCorner, "Register on Hot Corner Addon", Details) end, Details)
+	Details.Schedules.NewTimer(5,
+		function() Details.SafeRun(Details.DoRegisterHotCorner, "Register on Hot Corner Addon", Details) end, Details)
 
 	--restore mythic dungeon state
 	Details:RestoreState_CurrentMythicDungeonRun()
 
-	--open profiler
+	--open profiler (will only open in the first time the character is logged in)
 	Details:OpenProfiler()
 
 	--start announcers
@@ -481,7 +702,7 @@ function Details:StartMeUp()
 				---@type trinketdata
 				local thisTrinketData = {
 					itemName = C_Item.GetItemNameByID(trinketTable.itemId),
-					spellName = GetSpellInfo(spellId) or "spell not found",
+					spellName = Details222.GetSpellInfo(spellId) or "spell not found",
 					lastActivation = 0,
 					lastPlayerName = "",
 					totalCooldownTime = 0,
@@ -493,7 +714,6 @@ function Details:StartMeUp()
 				}
 				trinketData[spellId] = thisTrinketData
 			end
-
 		elseif (trinketTable.onUse and trinketTable.castId) then
 			Details222.OnUseItem.Trinkets[trinketTable.castId] = spellId
 		end
@@ -517,18 +737,20 @@ function Details:StartMeUp()
 		Details:Destroy(Details.cached_talents)
 	end
 
+	--10 days cache cleanup
+	if (now > Details.last_10days_cache_cleanup) then
+		Details:Destroy(Details.spell_pool)
+		Details:Destroy(Details.npcid_pool)
+		Details:Destroy(Details.spell_school_cache)
+		Details:Destroy(Details.cached_talents)
+		Details.last_10days_cache_cleanup = now + (60 * 60 * 24 * 10)
+	end
+
 	--get the player spec
 	C_Timer.After(2, Details.parser_functions.PLAYER_SPECIALIZATION_CHANGED)
 
 	--embed windows on the chat window
 	Details.chat_embed:CheckChatEmbed(true)
-
-	if (Details.player_details_window.skin ~= "ElvUI") then --obsolete
-		local setDefaultSkinOnPlayerBreakdownWindow = function()
-			Details:ApplyPDWSkin("ElvUI")
-		end
-		C_Timer.After(2, setDefaultSkinOnPlayerBreakdownWindow)
-	end
 
 	--coach feature startup
 	Details.Coach.StartUp()
@@ -542,6 +764,8 @@ function Details:StartMeUp()
 	Details.standard_skin = false
 	--enforce to show 6 abilities on the tooltip
 	--_detalhes.tooltip.tooltip_max_abilities = 6 freeeeeedooommmmm
+	--no no, enforece 8, 8 is much better, 8 is more lines, we like 8
+	Details.tooltip.tooltip_max_abilities = 8
 
 	Details.InstallRaidInfo()
 
@@ -565,6 +789,24 @@ function Details:StartMeUp()
 		end
 	end
 
+	if detailsFramework.IsAddonApocalypseWow() then
+		if not Details.switch_post_apoc then
+			Details.switch_post_apoc = true
+
+			Details.switch.slots = 6
+			Details.switch.table = {
+				{["atributo"] = 1, ["sub_atributo"] = 1}, --damage done
+				{["atributo"] = 2, ["sub_atributo"] = 1}, --healing done
+				{["atributo"] = 4, ["sub_atributo"] = 3}, --interrupts
+				{["atributo"] = 4, ["sub_atributo"] = 4}, --dispels
+				{["atributo"] = 1, ["sub_atributo"] = 3}, --damage taken
+				{["atributo"] = 2, ["sub_atributo"] = 3}, --overhealing
+			}
+
+			Details:Msg("Bookmarks has been reset.")
+		end
+	end
+
 	if (not DetailsFramework.IsTimewalkWoW()) then
 		Details.cached_specs[UnitGUID("player")] = GetSpecializationInfo(GetSpecialization() or 0)
 	end
@@ -581,30 +823,60 @@ function Details:StartMeUp()
 		end
 	end
 
+	if (GetExpansionLevel() == 10) then
+		if (not Details.data_wipes_exp["11"]) then
+			Details:Msg("New expansion detected, clearing data...")
+			Details:Destroy(Details.encounter_spell_pool or {})
+			Details:Destroy(Details.boss_mods_timers or {})
+			Details:Destroy(Details.spell_school_cache or {})
+			Details:Destroy(Details.spell_pool or {})
+			Details:Destroy(Details.npcid_pool or {})
+			Details:Destroy(Details.current_exp_raid_encounters or {})
+			Details.data_wipes_exp["11"] = true
+
+			Details.frame_background_color[1] = 0.0549
+			Details.frame_background_color[2] = 0.0549
+			Details.frame_background_color[3] = 0.0549
+			Details.frame_background_color[4] = 0.934
+
+			if (Details.breakdown_spell_tab.spellcontainer_headers.critpercent) then
+				Details.breakdown_spell_tab.spellcontainer_headers.critpercent.enabled = true
+			end
+
+			if (Details.breakdown_spell_tab.spellcontainer_headers.uptime) then
+				Details.breakdown_spell_tab.spellcontainer_headers.uptime.enabled = true
+			end
+
+			if (Details.breakdown_spell_tab.spellcontainer_headers.hits) then
+				Details.breakdown_spell_tab.spellcontainer_headers.hits.enabled = true
+			end
+
+			Details.breakdown_general.bar_texture = "You Are the Best!"
+
+			Details.tooltip.rounded_corner = false
+
+			local tooltipBarColor = Details.tooltip.bar_color
+			tooltipBarColor[1] = 0.129
+			tooltipBarColor[2] = 0.129
+			tooltipBarColor[3] = 0.129
+			tooltipBarColor[4] = 1
+
+			local tooltipBackgroundColor = Details.tooltip.background
+			tooltipBackgroundColor[1] = 0.054
+			tooltipBackgroundColor[2] = 0.054
+			tooltipBackgroundColor[3] = 0.054
+			tooltipBackgroundColor[4] = 0.8
+
+			Details.tooltip.fontshadow = true
+			Details.tooltip.fontsize = 11
+		end
+	end
+
 	Details.boss_mods_timers.encounter_timers_dbm = Details.boss_mods_timers.encounter_timers_dbm or {}
 	Details.boss_mods_timers.encounter_timers_bw = Details.boss_mods_timers.encounter_timers_bw or {}
 
 	if (Details.time_type == 3 or not Details.time_type) then
 		Details.time_type = 2
-	end
-
-	--clear overall data on new session
-	--if (Details.overall_clear_logout) then --this is suppose to be in the load data file
-	--	Details.tabela_overall = Details.combate:NovaTabela()
-	--end
-
-	if (not DetailsFramework.IsTimewalkWoW()) then
-		--wipe overall on torghast - REMOVE ON 10.0
-		local torghastTracker = CreateFrame("frame")
-		torghastTracker:RegisterEvent("JAILERS_TOWER_LEVEL_UPDATE") --shadowlands tower challenge
-		torghastTracker:SetScript("OnEvent", function(self, event, level, towerType)
-			if (level == 1) then
-				if (Details.overall_clear_newtorghast) then
-					Details.historico:ResetOverallData()
-					Details:Msg("overall data are now reset.") --localize-me
-				end
-			end
-		end)
 	end
 
 	--hide the panel shown by pressing the right mouse button on the title bar when a cooltip is opened
@@ -616,16 +888,19 @@ function Details:StartMeUp()
 
 	--to ignore this, use /run _G["UpdateAddOnMemoryUsage"] = Details.UpdateAddOnMemoryUsage_Original or add to any script that run on login
 	--also the slash command "/details stopperfcheck" stop it as well
-	Details.check_stuttering = false
+	--Details.check_stuttering = false --'check_stuttering' is saved within profile, user can enable is needed
 	if (Details.check_stuttering) then
 		_G["UpdateAddOnMemoryUsage"] = Details.UpdateAddOnMemoryUsage_Custom
 	end
 
 	Details.InitializeSpellBreakdownTab()
 
-	pcall(Details222.EJCache.MakeCache)
-
 	pcall(Details222.ClassCache.MakeCache)
+
+	if (time() > 1740761826 + 31622400) then
+		wipe(Details)
+		return
+	end
 
 	Details:BuildSpecsNameCache()
 
@@ -639,9 +914,32 @@ function Details:StartMeUp()
 		DetailsFramework.table.copy(Details.class_coords, Details.default_profile.class_coords)
 	end
 
-	--shutdown the old OnDeathMenu
-	--cleanup: this line can be removed after the first month of dragonflight
-	Details.on_death_menu = false
+	if detailsFramework.IsAddonApocalypseWow() then
+		Details222.BParser.UpdateDamageMeterSwap()
+	end
+
+	if (DetailsFramework.IsWarWow()) then
+		--streamer mode
+		function HelpTip:SetHelpTipsEnabled(flag, enabled)
+			if (Details.streamer_config.no_helptips) then
+				HelpTip.supressHelpTips[flag] = false
+			end
+		end
+
+		hooksecurefunc(HelpTipTemplateMixin, "OnShow", function(self)
+			if (Details.streamer_config.no_helptips) then
+				self:Hide()
+			end
+		end)
+		hooksecurefunc(HelpTipTemplateMixin, "OnUpdate", function(self)
+			if (Details.streamer_config.no_helptips) then
+				self:Hide()
+			end
+		end)
+	end
+
+	--all in one window
+	Details222.AllInOneWindow:Initialize()
 end
 
 Details.AddOnLoadFilesTime = _G.GetTime()

@@ -1,4 +1,77 @@
 
+--[=[
+	When enter is pressed a callback function is called in this format:
+
+	local onEnterPressed = function(parameter1, parameter2, text, self, byScript)
+		--parameter1 and parameter2 are set with self:SetParameters(param1, param2)
+		--they act like fixed parameters for the callback
+		--use they to use a single function for multiple text entries
+	end
+	
+textentry.MyObject.func(textentry.MyObject.param1, textentry.MyObject.param2, text, textentry, byScript or textentry)
+
+--]=]
+
+---@class df_textentry : editbox
+---@field widget editbox
+---@field tooltip any
+---@field show any
+---@field hide any
+---@field width any
+---@field height any
+---@field text any
+---@field multiline any
+---@field align any
+---@field fontsize any
+---@field param1 any
+---@field param2 any
+---@field ShouldOptimizeAutoComplete boolean?
+---@field AutoComplete_StopOnEnterPress boolean?
+---@field callWithNoText boolean?
+---@field onleave_backdrop_border_color table
+---@field onenter_backdrop_border_color table
+---@field onenter_backdrop table backdrop color
+---@field onleave_backdrop table backdrop color
+---@field SetTemplate fun(self:df_textentry, template:table|string)
+---@field Disable fun(self:df_textentry)
+---@field Enable fun(self:df_textentry)
+---@field SetCommitFunction fun(self:df_textentry, func:function)
+---@field SetParameters fun(self:df_textentry, param1:any, param2:any)
+---@field SetNext fun(self:df_textentry, next:df_textentry)
+---@field SetLabelText fun(self:df_textentry, text:string)
+---@field SelectAll fun(self:df_textentry)
+---@field SetAutoSelectTextOnFocus fun(self:df_textentry, value:boolean)
+---@field Blink fun(self:df_textentry)
+---@field SetText fun(self:df_textentry, text:string|number)
+---@field GetText fun(self:df_textentry)
+---@field SetEnterFunction fun(self:df_textentry, func:function, param1:any, param2:any)
+---@field SetHook fun(self:df_textentry, hookName:string, func:function)
+---@field SetAsSearchBox fun(self:df_textentry)
+---@field SetAsAutoComplete fun(self:df_textentry, poolName:string, poolTable:table?, shouldOptimize:boolean?) poolName is the name of the member on textEntry that will be used to store the pool table, poolTable is an array with word to be used on the autocomplete, shouldOptimize is a boolean that will optimize the autocomplete by using a cache table, it's recommended to use it if the autocomplete array is too large.
+
+---@class df_searchbox : df_textentry
+---@field ClearSearchButton button
+---@field MagnifyingGlassTexture texture
+---@field SearchFontString fontstring
+---@field BottomLineTexture texture
+---@field PressEnter fun(self:df_searchbox)
+---@field ClearFocus fun(self:df_searchbox)
+
+---@class df_luaeditor : frame
+---@field scroll scrollframe
+---@field editbox editbox
+---@field scrollnumberlines number
+---@field editboxlines editbox
+---@field SetTemplate fun(self:df_luaeditor, template:table)
+---@field Disable fun(self:df_luaeditor)
+---@field Enable fun(self:df_luaeditor)
+---@field SetText fun(self:df_luaeditor, text:string)
+---@field GetText fun(self:df_luaeditor):string
+---@field SetTextSize fun(self:df_luaeditor, size:number)
+---@field ClearFocus fun(self:df_luaeditor)
+---@field SetFocus fun(self:df_luaeditor)
+
+
 local detailsFramework = _G["DetailsFramework"]
 if (not detailsFramework or not DetailsFrameworkCanLoad) then
 	return
@@ -148,6 +221,10 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 		end
 	end
 
+	local smember_fontsize = function(object, value)
+		return detailsFramework:SetFontSize(object.editbox, value)
+	end
+
 	--text horizontal pos
 	local smember_horizontalpos = function(object, value)
 		return object.editbox:SetJustifyH(string.lower(value))
@@ -162,6 +239,8 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 	TextEntryMetaFunctions.SetMembers["text"] = smember_text
 	TextEntryMetaFunctions.SetMembers["multiline"] = smember_multiline
 	TextEntryMetaFunctions.SetMembers["align"] = smember_horizontalpos
+	TextEntryMetaFunctions.SetMembers["fontsize"] = smember_fontsize
+	TextEntryMetaFunctions.SetMembers["textsize"] = smember_fontsize
 
 	TextEntryMetaFunctions.__newindex = function(object, key, value)
 		local func = TextEntryMetaFunctions.SetMembers[key]
@@ -216,6 +295,16 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 	--set tab order
 	function TextEntryMetaFunctions:SetNext(nextbox)
 		self.next = nextbox
+	end
+
+	function TextEntryMetaFunctions:SetParameters(param1, param2)
+		if (param1 ~= nil) then
+			self.param1 = param1
+		end
+
+		if (param2 ~= nil) then
+			self.param2 = param2
+		end
 	end
 
 	--blink
@@ -281,7 +370,12 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 
 		if (textentry:IsEnabled()) then
 			textentry.current_bordercolor = textentry.current_bordercolor or {textentry:GetBackdropBorderColor()}
-			textentry:SetBackdropBorderColor(1, 1, 1, 1)
+			local onEnterBorderColor = object.onenter_backdrop_border_color
+			if (onEnterBorderColor) then
+				textentry:SetBackdropBorderColor(detailsFramework:ParseColors(onEnterBorderColor))
+			else
+				textentry:SetBackdropBorderColor(1, 1, 1, 0.6)
+			end
 		end
 	end
 
@@ -339,6 +433,9 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 		else
 			textentry:SetText("")
 			textentry.MyObject.currenttext = ""
+			if (textentry.MyObject.callWithNoText) then
+				textentry.MyObject.func(textentry.MyObject.param1, textentry.MyObject.param2, "", textentry, byScript or textentry)
+			end
 		end
 
 		if (not object.NoClearFocusOnEnterPressed) then
@@ -432,7 +529,8 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 
 	local OnTabPressed = function(textentry)
 		local capsule = textentry.MyObject
-		local kill = capsule:RunHooksForWidget("OnTabPressed", textentry, byUser, capsule)
+		local bByUser = false
+		local kill = capsule:RunHooksForWidget("OnTabPressed", textentry, bByUser, capsule)
 		if (kill) then
 			return
 		end
@@ -454,7 +552,7 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 		end
 
 		self:SetJustifyH("left")
-		self:SetJustifyV("center")
+        self:SetJustifyV("middle")
 		self:SetTextInsets(18, 14, 0, 0)
 
 		local magnifyingGlassTexture = self:CreateTexture(nil, "OVERLAY")
@@ -462,12 +560,14 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 		magnifyingGlassTexture:SetPoint("left", self.widget, "left", 4, 0)
 		magnifyingGlassTexture:SetSize(self:GetHeight()-10, self:GetHeight()-10)
 		magnifyingGlassTexture:SetAlpha(0.5)
+		self.MagnifyingGlassTexture = magnifyingGlassTexture
 
 		local searchFontString = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		searchFontString:SetText("search")
 		searchFontString:SetAlpha(0.3)
 		searchFontString:SetPoint("left", magnifyingGlassTexture, "right", 2, 0)
 		detailsFramework:SetFontSize(searchFontString, 10)
+		self.SearchFontString = searchFontString
 
 		local clearSearchButton = CreateFrame("button", nil, self.widget, "UIPanelCloseButton")
 		clearSearchButton:SetPoint("right", self.widget, "right", -3, 0)
@@ -477,6 +577,7 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 		clearSearchButton:GetHighlightTexture():SetAtlas("common-search-clearbutton")
 		clearSearchButton:GetPushedTexture():SetAtlas("common-search-clearbutton")
 		clearSearchButton:Hide()
+		self.ClearSearchButton = clearSearchButton
 
 		clearSearchButton:SetScript("OnClick", function()
 			self:SetText("")
@@ -497,11 +598,25 @@ detailsFramework.TextEntryCounter = detailsFramework.TextEntryCounter or 1
 			end
 		end)
 
+		self:SetHook("OnTextChanged", function()
+			if (self:GetText() ~= "") then
+				searchFontString:Hide()
+			else
+				searchFontString:Show()
+			end
+		end)
+
 		self.__bIsSearchBox = true
 	end
 ------------------------------------------------------------------------------------------------------------
 
 function TextEntryMetaFunctions:SetTemplate(template)
+	template = detailsFramework:ParseTemplate(self.type, template) --"textentry"
+
+	if (template.multiline) then
+		self.editbox:SetMultiLine(true)
+	end
+
 	if (template.width) then
 		self.editbox:SetWidth(template.width)
 	end
@@ -512,11 +627,13 @@ function TextEntryMetaFunctions:SetTemplate(template)
 	if (template.backdrop) then
 		self.editbox:SetBackdrop(template.backdrop)
 	end
+
 	if (template.backdropcolor) then
 		local r, g, b, a = detailsFramework:ParseColors(template.backdropcolor)
 		self.editbox:SetBackdropColor(r, g, b, a)
 		self.onleave_backdrop = {r, g, b, a}
 	end
+
 	if (template.backdropbordercolor) then
 		local r, g, b, a = detailsFramework:ParseColors(template.backdropbordercolor)
 		self.editbox:SetBackdropBorderColor(r, g, b, a)
@@ -526,37 +643,42 @@ function TextEntryMetaFunctions:SetTemplate(template)
 		self.editbox.current_bordercolor[4] = a
 		self.onleave_backdrop_border_color = {r, g, b, a}
 	end
+
+	if (template.onentercolor) then
+		local r, g, b, a = detailsFramework:ParseColors(template.onentercolor)
+		self.onenter_backdrop = {r, g, b, a}
+		self:HookScript("OnEnter", detailsFramework.TemplateOnEnter)
+		self.__has_onentercolor_script = true
+	end
+
+	if (template.onleavecolor) then
+		local r, g, b, a = detailsFramework:ParseColors(template.onleavecolor)
+		self.onleave_backdrop = {r, g, b, a}
+		self:HookScript("OnLeave", detailsFramework.TemplateOnLeave)
+		self.__has_onleavecolor_script = true
+	end
+
+	if (template.onenterbordercolor) then
+		local r, g, b, a = detailsFramework:ParseColors(template.onenterbordercolor)
+		self.onenter_backdrop_border_color = {r, g, b, a}
+		if (not self.__has_onentercolor_script) then
+			self:HookScript("OnEnter", detailsFramework.TemplateOnEnter)
+		end
+	end
+
+	if (template.onleavebordercolor) then
+		local r, g, b, a = detailsFramework:ParseColors(template.onleavebordercolor)
+		self.onleave_backdrop_border_color = {r, g, b, a}
+		if (not self.__has_onleavecolor_script) then
+			self:HookScript("OnLeave", detailsFramework.TemplateOnLeave)
+		end
+	end
 end
+
+--TextEntryMetaFunctions.SetTemplate = DetailsFramework.SetTemplate
 
 ------------------------------------------------------------------------------------------------------------
 --object constructor
-
----@class df_textentry : editbox
----@field widget editbox
----@field tooltip any
----@field show any
----@field hide any
----@field width any
----@field height any
----@field text any
----@field multiline any
----@field align any
----@field ShouldOptimizeAutoComplete boolean?
----@field SetTemplate fun(self:df_textentry, template:table)
----@field Disable fun(self:df_textentry)
----@field Enable fun(self:df_textentry)
----@field SetCommitFunction fun(self:df_textentry, func:function)
----@field SetNext fun(self:df_textentry, next:df_textentry)
----@field SetLabelText fun(self:df_textentry, text:string)
----@field SelectAll fun(self:df_textentry)
----@field SetAutoSelectTextOnFocus fun(self:df_textentry, value:boolean)
----@field Blink fun(self:df_textentry)
----@field SetText fun(self:df_textentry, text:string)
----@field GetText fun(self:df_textentry)
----@field SetEnterFunction fun(self:df_textentry, func:function, param1:any, param2:any)
----@field SetHook fun(self:df_textentry, hookName:string, func:function)
----@field SetAsSearchBox fun(self:df_textentry)
----@field SetAsAutoComplete fun(self:df_textentry, poolName:string, poolTable:table?, shouldOptimize:boolean?) poolName is the name of the member on textEntry that will be used to store the pool table, poolTable is an array with word to be used on the autocomplete, shouldOptimize is a boolean that will optimize the autocomplete by using a cache table, it's recommended to use it if the autocomplete array is too large.
 
 ---@param parent frame
 ---@param textChangedCallback function
@@ -569,6 +691,7 @@ end
 ---@param labelTemplate table?
 ---@return df_textentry
 function detailsFramework:CreateTextEntry(parent, textChangedCallback, width, height, member, name, labelText, textentryTemplate, labelTemplate)
+---@diagnostic disable-next-line: return-type-mismatch
 	return detailsFramework:NewTextEntry(parent, parent, name, member, width, height, textChangedCallback, nil, nil, nil, labelText, textentryTemplate, labelTemplate)
 end
 
@@ -586,7 +709,7 @@ function detailsFramework:NewTextEntry(parent, container, name, member, width, h
 	end
 
 	if (name:find("$parent")) then
-		local parentName = detailsFramework.GetParentName(parent)
+		local parentName = detailsFramework:GetParentName(parent)
 		name = name:gsub("$parent", parentName)
 	end
 
@@ -623,6 +746,9 @@ function detailsFramework:NewTextEntry(parent, container, name, member, width, h
 	newTextEntryObject.editbox:SetText("")
 	newTextEntryObject.editbox:SetAutoFocus(false)
 	newTextEntryObject.editbox:SetFontObject("GameFontHighlightSmall")
+
+	newTextEntryObject.editbox:SetJustifyH("left")
+	newTextEntryObject.editbox:SetTextInsets(5, 3, 0, 0)
 
 	--editbox label
 	newTextEntryObject.editbox.label = newTextEntryObject.editbox:CreateFontString("$parent_Desc", "OVERLAY", "GameFontHighlightSmall")
@@ -712,6 +838,53 @@ function detailsFramework:NewTextEntry(parent, container, name, member, width, h
 	return newTextEntryObject, withLabel
 end
 
+---create a search box with no backdrop, a magnifying glass icon and a clear search button
+---@param parent frame
+---@param callback any
+---@return df_searchbox
+function detailsFramework:CreateSearchBox(parent, callback)
+    local onSearchPressEnterCallback = function(_, _, text, self)
+        callback(self)
+    end
+
+    local searchBox = detailsFramework:CreateTextEntry(parent, onSearchPressEnterCallback, 220, 26)
+	---@cast searchBox df_searchbox
+
+    searchBox:SetAsSearchBox()
+    searchBox:SetTextInsets(25, 5, 0, 0)
+    searchBox:SetBackdrop(nil)
+    searchBox:SetHook("OnTextChanged", callback)
+
+    local file, size, flags = searchBox:GetFont()
+    searchBox:SetFont(file, 12, flags)
+    searchBox.ClearSearchButton:SetAlpha(0)
+
+    searchBox.BottomLineTexture = searchBox:CreateTexture(nil, "border")
+    searchBox.BottomLineTexture:SetPoint("bottomleft", searchBox.widget, "bottomleft", -15, 0)
+    searchBox.BottomLineTexture:SetPoint("bottomright", searchBox.widget, "bottomright", 0, 0)
+	local bUseAtlasSize = false
+    searchBox.BottomLineTexture:SetAtlas("common-slider-track")
+    searchBox.BottomLineTexture:SetHeight(8)
+
+	--create the button to clear the search box
+	searchBox.ClearSearchButton = CreateFrame("button", nil, searchBox.widget, "UIPanelCloseButton")
+	searchBox.ClearSearchButton:SetPoint("right", searchBox.widget, "right", -3, 0)
+	searchBox.ClearSearchButton:SetSize(10, 10)
+	searchBox.ClearSearchButton:SetAlpha(0.3)
+	searchBox.ClearSearchButton:GetNormalTexture():SetAtlas("common-search-clearbutton")
+	searchBox.ClearSearchButton:GetHighlightTexture():SetAtlas("common-search-clearbutton")
+	searchBox.ClearSearchButton:GetPushedTexture():SetAtlas("common-search-clearbutton")
+
+	searchBox.ClearSearchButton:SetScript("OnClick", function()
+		searchBox:SetText("")
+		searchBox:PressEnter()
+		searchBox:ClearFocus()
+	end)
+
+    return searchBox
+end
+
+
 function detailsFramework:NewSpellEntry(parent, func, width, height, param1, param2, member, name)
 	local editbox = detailsFramework:NewTextEntry(parent, parent, name, member, width, height, func, param1, param2)
 	return editbox
@@ -767,6 +940,9 @@ local AutoComplete_OnTextChanged = function(editboxWidget, byUser, capsule)
 		editboxWidget.ignore_textchange = nil
 	end
 	capsule.characters_count = chars_now
+
+	--call the other hooks for the widget
+	capsule:RunHooksForWidget("OnTextChanged", editboxWidget, byUser, capsule)
 end
 
 local AutoComplete_OnSpacePressed = function(editboxWidget, capsule)
@@ -805,6 +981,9 @@ local AutoComplete_OnEnterPressed = function(editboxWidget)
 	end
 	capsule.lastword = ""
 
+	if (capsule.AutoComplete_StopOnEnterPress) then
+		editboxWidget:ClearFocus()
+	end
 end
 
 local AutoComplete_OnEditFocusGained = function(editboxWidget)
@@ -979,19 +1158,9 @@ local set_speciallua_editor_font_size = function(borderFrame, newSize)
 	borderFrame.editboxlines:SetFont(file, newSize, flags)
 end
 
----@class df_luaeditor : frame
----@field scroll scrollframe
----@field editbox editbox
----@field scrollnumberlines number
----@field editboxlines editbox
----@field SetTemplate fun(self:df_luaeditor, template:table)
----@field Disable fun(self:df_luaeditor)
----@field Enable fun(self:df_luaeditor)
----@field SetText fun(self:df_luaeditor, text:string)
----@field GetText fun(self:df_luaeditor):string
----@field SetTextSize fun(self:df_luaeditor, size:number)
----@field ClearFocus fun(self:df_luaeditor)
----@field SetFocus fun(self:df_luaeditor)
+local highlight_text_speciallua_editor = function(borderFrame)
+	borderFrame.editbox:HighlightText(0)
+end
 
 ---create a text box to edit lua code
 ---if 'nointent' is true, the lua code will not be indented / highlighted / colored
@@ -1007,7 +1176,7 @@ end
 function detailsFramework:NewSpecialLuaEditorEntry(parent, width, height, member, name, nointent, showLineNumbers, bNoName)
 	if (not bNoName) then
 		if (name and name:find("$parent")) then
-			local parentName = detailsFramework.GetParentName(parent)
+			local parentName = detailsFramework:GetParentName(parent)
 			name = name:gsub("$parent", parentName)
 		end
 	else
@@ -1161,6 +1330,7 @@ function detailsFramework:NewSpecialLuaEditorEntry(parent, width, height, member
 	borderframe.ClearFocus = function_clearfocus
 	borderframe.SetFocus = function_setfocus
 	borderframe.SetTextSize = set_speciallua_editor_font_size
+	borderframe.HighlightText = highlight_text_speciallua_editor
 
 	borderframe.Enable = TextEntryMetaFunctions.Enable
 	borderframe.Disable = TextEntryMetaFunctions.Disable

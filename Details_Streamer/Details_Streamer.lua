@@ -61,6 +61,17 @@ local iconSize = 16
 --default icon for an attack on a monster
 local defaultAttackIcon = [[Interface\CURSOR\UnableAttack]]
 
+local GetSpellInfo = GetSpellInfo
+
+if (C_Spell and C_Spell.GetSpellInfo) then
+	GetSpellInfo = function(spellId)
+		local spellInfo = C_Spell.GetSpellInfo(spellId)
+		if (spellInfo) then
+			return spellInfo.name, _, spellInfo.iconID
+		end
+	end
+end
+
 local function CreatePluginFrames()
 	--shortcut for details fade function
 	local fader = Details.FadeHandler.Fader
@@ -501,7 +512,7 @@ local function CreatePluginFrames()
 				end
 
 				line.icon2:SetTexture (data [4])
-				line.icon2:SetTexCoord (unpack (data [5]))
+				line.icon2:SetTexCoord (unpack (data [5] or {0, 1, 0, 1}))
 				if (data [4] == defaultAttackIcon) then
 					line.icon2:SetSize (iconSize*0.8, iconSize*0.8)
 					line.icon2:SetPoint ("left", line, "center", 8, 0)
@@ -1057,7 +1068,7 @@ end
 
 function StreamOverlay:CastFinished (castid)
 	local spellid = CastsTable [castid].SpellId
-	local target = CastsTable [castid].Target
+	local targetName = CastsTable [castid].Target
 	local caststart = CastsTable [castid].CastStart
 	local hascasttime = CastsTable [castid].HasCastTime
 	
@@ -1071,27 +1082,52 @@ function StreamOverlay:CastFinished (castid)
 		
 	else
 		--just casted a instant spell
-		
-		local icon, backgroundcolor, bordercolor = StreamOverlay:GetSpellInformation (spellid)
-		local spellname, _, spellicon = GetSpellInfo (spellid)
-		
-		local targetObject = Details:GetActor ("current", 1, target) or Details:GetActor ("current", 2, target)
-		
-		local icon2, icon2coords, class = parse_target_icon (targetObject, target)
-		
-		local color2
-		if (icon2 == RoleIcons) then
-			color2 = parse_target_color (class)
-			if (not color2) then
+		if DetailsFramework.IsAddonApocalypseWow() and issecretvalue(targetName) then
+			local icon, backgroundcolor, bordercolor = StreamOverlay:GetSpellInformation (spellid)
+			local spellname, _, spellicon = GetSpellInfo (spellid)
+			
+			--local targetObject = Details:GetActor ("current", 1, targetName) or Details:GetActor ("current", 2, targetName)
+			--local icon2, icon2coords, class = parse_target_icon (targetObject, targetName)
+			--[=[
+			local color2
+			if (icon2 == RoleIcons) then
+				color2 = parse_target_color (class)
+				if (not color2) then
+					color2 = DefaultColor
+				end
+			else
 				color2 = DefaultColor
 			end
+			--]=]
+			
+			--targetName = parse_target_name (targetName)
+			targetName = UnitName(targetName)
+			
+			StreamOverlay:NewText (spellicon, spellname, nil, "", {0, 1, 0, 1}, targetName, DefaultColor, backgroundcolor, bordercolor, castid, caststart, GetTime(), GetTime()+1.2)
 		else
-			color2 = DefaultColor
+			--targetName is a secret
+			local icon, backgroundcolor, bordercolor = StreamOverlay:GetSpellInformation (spellid)
+			local spellname, _, spellicon = GetSpellInfo (spellid)
+			
+
+			local targetObject = Details:GetActor ("current", 1, targetName) or Details:GetActor ("current", 2, targetName)
+			
+			local icon2, icon2coords, class = parse_target_icon (targetObject, targetName)
+			
+			local color2
+			if (icon2 == RoleIcons) then
+				color2 = parse_target_color (class)
+				if (not color2) then
+					color2 = DefaultColor
+				end
+			else
+				color2 = DefaultColor
+			end
+			
+			targetName = parse_target_name (targetName)
+			
+			StreamOverlay:NewText (spellicon, spellname, nil, icon2, icon2coords, targetName, color2, backgroundcolor, bordercolor, castid, caststart, GetTime(), GetTime()+1.2)
 		end
-		
-		target = parse_target_name (target)
-		
-		StreamOverlay:NewText (spellicon, spellname, nil, icon2, icon2coords, target, color2, backgroundcolor, bordercolor, castid, caststart, GetTime(), GetTime()+1.2)
 	end
 end
 
@@ -2277,23 +2313,23 @@ function StreamOverlay.OpenOptionsPanel (fromOptionsPanel)
 				dropdown_profile:Select (Details_StreamerDB.characters [pname])
 				
 			end
-			optionsFrame.NewProfileButton = Details.gump:CreateButton (optionsFrame, add_profile, 60, 18, "New Profiile", _, _, _, _, _, _, Details.gump:GetTemplate ("dropdown", "OPTIONS_DROPDOWN_TEMPLATE"), Details.gump:GetTemplate ("font", "OPTIONS_FONT_TEMPLATE"))
+			optionsFrame.NewProfileButton = Details.gump:CreateButton (optionsFrame, add_profile, 60, 18, "New Profile", _, _, _, _, _, _, Details.gump:GetTemplate ("dropdown", "OPTIONS_DROPDOWN_TEMPLATE"), Details.gump:GetTemplate ("font", "OPTIONS_FONT_TEMPLATE"))
 			optionsFrame.NewProfileButton:SetPoint ("left", dropdown_profile, "right", 4, 0)
 		end
 		
 		--enable / disable plugin button
 		local toggle_OnOff = function()
-			local pluginStable = Details:GetPluginSavedTable("DETAILS_PLUGIN_STREAM_OVERLAY")
+			local pluginSavedTable = Details:GetPluginSavedTable("DETAILS_PLUGIN_STREAM_OVERLAY")
 			local pluginObject = Details:GetPlugin("DETAILS_PLUGIN_STREAM_OVERLAY")
 
-			if (pluginStable.enabled) then
-                pluginStable.enabled = false
+			if (pluginSavedTable.enabled) then
+                pluginSavedTable.enabled = false
                 pluginObject.__enabled = false
 				Details:SendEvent("PLUGIN_DISABLED", pluginObject)
 				optionsFrame.toggleButton.text = "Start Plugin"
 
 			else
-                pluginStable.enabled = true
+                pluginSavedTable.enabled = true
                 pluginObject.__enabled = true
 				Details:SendEvent("PLUGIN_ENABLED", pluginObject)
 				optionsFrame.toggleButton.text = "Disable Plugin"

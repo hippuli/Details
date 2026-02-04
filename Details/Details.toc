@@ -1,11 +1,17 @@
-## Interface: 30403
+## Interface: 20505
+## X-Min-Interface: 20504
 ## Title: Details! Damage Meter
 ## Notes: Essential tool to impress that chick in your raid.
-## SavedVariables: _detalhes_global, __details_backup
+## Notes-ruRU: Анализирует сражение в реальном времени, предоставляя игрокам чистые визуальные данные
+## SavedVariables: _detalhes_global, __details_backup, __details_debug
 ## SavedVariablesPerCharacter: _detalhes_database
-## OptionalDeps: Ace3, LibSharedMedia-3.0, LibWindow-1.1, LibDBIcon-1.0, NickTag-1.0, LibDataBroker-1.1, LibItemUpgradeInfo-1.0, LibGroupInSpecT-1.1, LibGraph-2.0
-## Version: #Details.20231120.12044.155
+## OptionalDeps: Ace3, LibSharedMedia-3.0, LibWindow-1.1, LibDBIcon-1.0, NickTag-1.0, LibDataBroker-1.1, LibGraph-2.0
+## Version: #Details.20260126.14350.167
 ## IconTexture: Interface\AddOns\Details\images\minimap
+## AddonCompartmentFunc: Details_OpenDefaultOptionsWindow
+
+## X-Curse-Project-ID: 61284
+## X-Wago-ID: qv63A7Gb
 
 #@no-lib-strip@
 Libs\libs.xml
@@ -27,10 +33,13 @@ Definitions.lua
 
 boot.lua
 indent.lua
-core\util.lua
+functions\util.lua
 functions\mixin.lua
 API.lua
+textures.lua
 
+functions\ej_cache.lua
+functions\events.lua
 functions\private.lua
 functions\profiles.lua
 functions\hooks.lua
@@ -39,7 +48,6 @@ functions\coach.lua
 functions\skins.lua
 functions\boss.lua
 functions\spells.lua
-functions\events.lua
 functions\classes.lua
 functions\buff.lua
 functions\spellcache.lua
@@ -52,20 +60,29 @@ functions\currentdps.lua
 functions\report.lua
 functions\rowanimation.lua
 functions\raidinfo.lua
-functions\dungeon.lua
+functions\mythicdungeon\mythicdungeon.lua
+functions\mythicdungeon\data_capture.lua
+functions\mythicdungeon\segments.lua
 functions\pack.lua
-functions\mythicdungeon.lua
 functions\immersion.lua
 functions\schedules.lua
 functions\autorun.lua
-functions\deathrecap.lua
 functions\plater.lua
 functions\deathmenu.lua
 functions\macros.lua
 functions\testbars.lua
+functions\editmode.lua
 functions\warcraftlogs.lua
 functions\textures.lua
+functions\journal.lua
+functions\commentator.lua
+functions\chat_embed.lua
+functions\storage.lua
+functions\swapper\swapper.lua
 
+core\parser_nocleu.lua
+
+core\aura_scan.lua
 core\timemachine.lua
 
 frames\anime.lua
@@ -89,14 +106,18 @@ frames\window_breakdown\breakdown_spells_genericframes.lua
 frames\window_breakdown\breakdown_spells_spellframes.lua
 frames\window_breakdown\breakdown_spells_targetframes.lua
 frames\window_breakdown\breakdown_spells_phaseframes.lua
+frames\window_mythicplus\window_mythic_breakdown.lua
+frames\window_mythicplus\window_end_of_run.lua
+frames\window_mythicplus\window_chart.lua
+frames\window_mythicplus\window_breakdown.lua
 frames\window_report.lua
 frames\window_main.lua
 frames\window_custom.lua
 frames\window_welcome.lua
 frames\window_news.lua
 frames\window_wa.lua
-frames\window_spellcategory.lua
 frames\window_forge.lua
+frames\window_spellcategory.lua
 frames\window_switch.lua
 frames\window_scrolldamage.lua
 frames\window_dump.lua
@@ -112,6 +133,13 @@ frames\window_brokertexteditor.lua
 frames\window_bookmark.lua
 frames\window_classcolor.lua
 frames\window_statistics.lua
+frames\window_aura_tracker.lua
+frames\window_debug.lua
+frames\window_pro_file.lua
+frames\window_nestspells.lua
+frames\window_deathrecap.lua
+frames\window_transcriptor.lua
+frames\window_arenasummary.lua
 
 classes\class_error.lua
 classes\class_spelltable.lua
@@ -131,6 +159,17 @@ classes\class_custom.lua
 classes\custom_damagedone.lua
 classes\custom_healingdone.lua
 
+core\parser_nocleu1.lua
+
+frames\window2\header_data.lua
+frames\window2\frames.lua
+frames\window2\refresh.lua
+frames\window2\events.lua
+frames\window2\options.lua
+frames\window2\public.lua
+frames\window2\tooltips.lua
+frames\window2\icon_functions.lua
+
 core\control.lua
 
 classes\container_actors.lua
@@ -149,7 +188,6 @@ core\meta.lua
 core\network.lua
 
 core\parser.lua
-#core\parser_timewalk.lua
 
 functions\spec_augmentation.lua
 functions\loaddata.lua

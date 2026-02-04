@@ -1,4 +1,12 @@
 
+--[=[
+	callback format:
+	function(blizzardButton, clickType, param1, param2)
+	end
+
+	Use .MyObject to get the framework button object
+--]=]
+
 local detailsFramework = _G["DetailsFramework"]
 
 if (not detailsFramework or not DetailsFrameworkCanLoad) then
@@ -304,10 +312,25 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 		end
 	end
 
+	function ButtonMetaFunctions:SetParameters(param1, param2)
+		if (param1 ~= nil) then
+			rawset(self, "param1", param1)
+		end
+		if (param2 ~= nil) then
+			rawset(self, "param2", param2)
+		end
+	end
+
 	---set the text shown on the button
 	---@param text string
 	function ButtonMetaFunctions:SetText(text)
 		self.button.text:SetText(text)
+	end
+
+	---set the text shown on the button and truncate it if it's too long
+	function ButtonMetaFunctions:SetTextTruncated(text, maxWidth)
+		self.button.text:SetText(text)
+		detailsFramework:TruncateText(self.button.text, maxWidth)
 	end
 
 	---set the color of the button text
@@ -381,8 +404,11 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 		end
 	end
 
+	local noColor = {1, 1, 1, 1}
+
 	---add an icon to the left of the button text
 	---short method truncates the text: false = do nothing, nil = increate the button width, 1 = decrease the font size, 2 = truncate the text
+	---@param self table
 	---@param texture any
 	---@param width number|nil
 	---@param height number|nil
@@ -393,7 +419,8 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 	---@param leftPadding number|nil
 	---@param textHeight number|nil
 	---@param shortMethod any
-	function ButtonMetaFunctions:SetIcon(texture, width, height, layout, texcoord, overlay, textDistance, leftPadding, textHeight, shortMethod)
+	---@param filterMode any
+	function ButtonMetaFunctions:SetIcon(texture, width, height, layout, texcoord, overlay, textDistance, leftPadding, textHeight, shortMethod, filterMode)
 		if (not self.icon) then
 			self.icon = self:CreateTexture(nil, "artwork")
 			self.icon:SetSize(self.height * 0.8, self.height * 0.8)
@@ -401,6 +428,16 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 			self.icon.leftPadding = leftPadding or 0
 			self.widget.text:ClearAllPoints()
 			self.widget.text:SetPoint("left", self.icon, "right", textDistance or 2, 0 + (textHeight or 0))
+		end
+
+		overlay = overlay or noColor
+		local red, green, blue, alpha = detailsFramework:ParseColors(overlay or noColor)
+
+		local left, right, top, bottom = texcoord and texcoord[1], texcoord and texcoord[2], texcoord and texcoord[3], texcoord and texcoord[4]
+		texture, width, height, left, right, top, bottom, red, green, blue, alpha = detailsFramework:ParseTexture(texture, width, height, left, right, top, bottom, red, green, blue, alpha)
+
+		if (red == nil) then
+			red, green, blue, alpha = 1, 1, 1, 1
 		end
 
 		if (type(texture) == "string") then
@@ -412,35 +449,19 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 				local r, g, b, a = detailsFramework:ParseColors(texture)
 				self.icon:SetColorTexture(r, g, b, a)
 			else
-				self.icon:SetTexture(texture)
+				self.icon:SetTexture(texture, nil, nil, filterMode)
 			end
-
-		elseif (type(texture) == "table") then
-			local r, g, b, a = detailsFramework:ParseColors(texture)
-			self.icon:SetColorTexture(r, g, b, a)
 		else
-			self.icon:SetTexture(texture)
+			self.icon:SetTexture(texture, nil, nil, filterMode)
 		end
 
 		self.icon:SetSize(width or self.height * 0.8, height or self.height * 0.8)
+
 		self.icon:SetDrawLayer(layout or "artwork")
 
-		if (texcoord) then
-			self.icon:SetTexCoord(unpack(texcoord))
-		else
-			self.icon:SetTexCoord(0, 1, 0, 1)
-		end
+		self.icon:SetTexCoord(left, right, top, bottom)
 
-		if (overlay) then
-			if (type(overlay) == "string") then
-				local r, g, b, a = detailsFramework:ParseColors(overlay)
-				self.icon:SetVertexColor(r, g, b, a)
-			else
-				self.icon:SetVertexColor(unpack(overlay))
-			end
-		else
-			self.icon:SetVertexColor(1, 1, 1, 1)
-		end
+		self.icon:SetVertexColor(red, green, blue, alpha)
 
 		local buttonWidth = self.button:GetWidth()
 		local iconWidth = self.icon:GetWidth()
@@ -472,6 +493,14 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 		end
 	end
 
+	---@param self df_button
+	---@param filterMode texturefilter
+	function ButtonMetaFunctions:SetIconFilterMode(filterMode)
+		if (self.icon) then
+			self.icon:SetTexture(self.icon:GetTexture(), nil, nil, filterMode)
+		end
+	end
+
 	---query if the button is enabled or not
 	---@return boolean
 	function ButtonMetaFunctions:IsEnabled()
@@ -487,7 +516,19 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 	---disable the button making it unclickable and grayed out
 	---@return unknown
 	function ButtonMetaFunctions:Disable()
+		if (self.color_texture) then
+			self.color_texture:SetVertexColor(0.14, 0.14, 0.14)
+		end
 		return self.button:Disable()
+	end
+
+	---@param enable boolean
+	function ButtonMetaFunctions:SetEnabled(enable)
+		if (enable) then
+			self:Enable()
+		else
+			self:Disable()
+		end
 	end
 
 	---simulate a click on the button
@@ -615,7 +656,7 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 
 		if (object.capsule_textalign) then
 			if (object.icon) then
-				object.icon:SetPoint("left", button, "left", 5 + (object.icon.leftpadding or 0), -1)
+				object.icon:SetPoint("left", button, "left", 5 + (object.icon.leftPadding or 0), -1)
 
 			elseif (object.capsule_textalign == "left") then
 				button.text:SetPoint("left", button, "left", 3, -1)
@@ -628,7 +669,7 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 			end
 		else
 			if (object.icon) then
-				object.icon:SetPoint("left", button, "left", 5 + (object.icon.leftpadding or 0), -1)
+				object.icon:SetPoint("left", button, "left", 5 + (object.icon.leftPadding or 0), -1)
 			else
 				button.text:SetPoint("center", button,"center", 1, -1)
 			end
@@ -676,7 +717,7 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 				if (object.is_mouse_over) then
 					button.texture:SetTexCoord(unpack(button.texture.coords.Highlight))
 				else
-					button.texture:SetTexCoord(unpack(coords.Normal))
+					--button.texture:SetTexCoord(unpack(coords.Normal))
 				end
 			else
 				if (object.is_mouse_over) then
@@ -689,7 +730,7 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 
 		if (object.capsule_textalign) then
 			if (object.icon) then
-				object.icon:SetPoint("left", button, "left", 4 + (object.icon.leftpadding or 0), 0)
+				object.icon:SetPoint("left", button, "left", 4 + (object.icon.leftPadding or 0), 0)
 
 			elseif (object.capsule_textalign == "left") then
 				button.text:SetPoint("left", button, "left", 2, 0)
@@ -702,7 +743,7 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 			end
 		else
 			if (object.icon) then
-				object.icon:SetPoint("left", button, "left", 4 + (object.icon.leftpadding or 0), 0)
+				object.icon:SetPoint("left", button, "left", 4 + (object.icon.leftPadding or 0), 0)
 			else
 				button.text:SetPoint("center", button,"center", 0, 0)
 			end
@@ -721,9 +762,9 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 
 		if ((x == button.x and y == button.y) or (button.mouse_down + 0.5 > GetTime() and button:IsMouseOver())) then
 			if (buttonType == "LeftButton") then
-				detailsFramework:CoreDispatch((button:GetName() or "Button") .. ":OnMouseUp()", object.func, button, buttonType, object.param1, object.param2)
+				xpcall(object.func, geterrorhandler(), button, buttonType, object.param1, object.param2)
 			else
-				detailsFramework:CoreDispatch((button:GetName() or "Button") .. ":OnMouseUp()", object.funcright, button, buttonType, object.param1, object.param2)
+				xpcall(object.funcright, geterrorhandler(), button, buttonType, object.param1, object.param2)
 			end
 		end
 	end
@@ -733,11 +774,9 @@ detailsFramework:Mixin(ButtonMetaFunctions, detailsFramework.ScriptHookMixin)
 ---receives a table where the keys are settings and the values are the values to set
 ---this is the list of keys the table support:
 ---width, height, icon|table, textcolor, textsize, textfont, textalign, backdrop, backdropcolor, backdropbordercolor, onentercolor, onleavecolor, onenterbordercolor, onleavebordercolor
----@param template table
+---@param template table|string
 function ButtonMetaFunctions:SetTemplate(template)
-	if (type(template) == "string") then
-		template = detailsFramework:GetTemplate("button", template)
-	end
+	template = detailsFramework:ParseTemplate(self.type, template)
 
 	if (not template) then
 		detailsFramework:Error("template not found")
@@ -790,7 +829,7 @@ function ButtonMetaFunctions:SetTemplate(template)
 
 	if (template.icon) then
 		local iconInfo = template.icon
-		self:SetIcon(iconInfo.texture, iconInfo.width, iconInfo.height, iconInfo.layout, iconInfo.texcoord, iconInfo.color, iconInfo.textdistance, iconInfo.leftpadding)
+		self:SetIcon(iconInfo.texture, iconInfo.width, iconInfo.height, iconInfo.layout, iconInfo.texcoord, iconInfo.color, iconInfo.textdistance, iconInfo.leftPadding)
 	end
 
 	if (template.textsize) then
@@ -807,6 +846,25 @@ function ButtonMetaFunctions:SetTemplate(template)
 
 	if (template.textalign) then
 		self.textalign = template.textalign
+	end
+
+	if (template.rounded_corner) then
+		self:SetBackdrop(nil)
+		detailsFramework:AddRoundedCornersToFrame(self.widget or self, template.rounded_corner)
+
+		--check if this is a color picker button
+		if (self.__iscolorpicker) then
+			self.color_texture:SetTexture([[Interface\CHARACTERFRAME\TempPortraitAlphaMaskSmall]], "CLAMP", "CLAMP", "TRILINEAR")
+			self.color_texture:SetDrawLayer("overlay", 7)
+			self.color_texture:SetPoint("topleft", self.widget, "topleft", 2, -2)
+			self.color_texture:SetPoint("bottomright", self.widget, "bottomright", -2, 2)
+
+			self.background_texture:SetDrawLayer("overlay", 6)
+			self.background_texture:SetPoint("topleft", self.color_texture, "topleft", 2, -2)
+			self.background_texture:SetPoint("bottomright", self.color_texture, "bottomright", -2, 2)
+
+			self.widget.texture_disabled:SetTexture([[Interface\CHARACTERFRAME\TempPortraitAlphaMaskSmall]], "CLAMP", "CLAMP", "TRILINEAR")
+		end
 	end
 end
 
@@ -840,8 +898,13 @@ end
 		self:SetScript("OnEnable", onEnableFunc)
 	end
 
-	---@class df_button : button, df_scripthookmixin
-	---@field widget button
+	---@class df_blizzbutton : button
+	---@field text fontstring
+	---@field MyObject df_button
+
+	---@class df_button : button, df_scripthookmixin, df_widgets
+	---@field widget df_blizzbutton
+	---@field button df_blizzbutton
 	---@field tooltip string
 	---@field shown boolean
 	---@field width number
@@ -857,24 +920,28 @@ end
 	---@field textfont string
 	---@field textsize number
 	---@field icon texture created after calling SetIcon()
-	---@field SetTemplate fun(self: df_button, template: table) set the button visual by a template
+	---@field SetTemplate fun(self: df_button, template: table|string) set the button visual by a template
 	---@field RightClick fun(self: df_button) right click the button executing its right click function
 	---@field Exec fun(self: df_button) execute the button function for the left button
 	---@field Disable fun(self: df_button) disable the button
 	---@field Enable fun(self: df_button) enable the button
+	---@field SetEnabled fun(self: df_button, enable: boolean) enable or disable the button
 	---@field IsEnabled fun(self: df_button) : boolean returns true if the button is enabled
 	---@field SetIcon fun(self: df_button,texture: string|number, width: number|nil, height: number|nil, layout: string|nil, texcoord: table|nil, overlay: table|nil, textDistance: number|nil, leftPadding: number|nil, textHeight: number|nil, shortMethod: any|nil)
 	---@field GetIconTexture fun(self: df_button) : string returns the texture path of the button icon
-	---@field SetTexture fun(self: df_button, normalTexture: string, highlightTexture: string, pressedTexture: string, disabledTexture: string) set the regular button textures
+	---@field SetTexture fun(self: df_button, normalTexture: any, highlightTexture: any, pressedTexture: any, disabledTexture: any) set the regular button textures
 	---@field SetFontFace fun(self: df_button, font: string) set the button font
 	---@field SetFontSize fun(self: df_button, size: number) set the button font size
 	---@field SetTextColor fun(self: df_button, color: any) set the button text color
 	---@field SetText fun(self: df_button, text: string) set the button text
+	---@field SetTextTruncated fun(self: df_button, text: string, maxWidth: number) set the button text and truncate it if it's too long
+	---@field SetParameters fun(self: df_button, param1: any, param2: any) set the parameters for the button callback function
 	---@field SetClickFunction fun(self: df_button, func: function, param1: any, param2: any, clickType: "left"|"right"|nil)
+	---@field SetIconFilterMode fun(self: df_button, filterMode: any) set the filter mode for the icon, execute after SetIcon()
 
 	---create a Details Framework button
-	---@param parent table
-	---@param func function
+	---@param parent frame
+	---@param callback function
 	---@param width number
 	---@param height number
 	---@param text any
@@ -887,8 +954,8 @@ end
 	---@param buttonTemplate table|nil
 	---@param textTemplate table|nil
 	---@return df_button
-	function detailsFramework:CreateButton(parent, func, width, height, text, param1, param2, texture, member, name, shortMethod, buttonTemplate, textTemplate)
-		return detailsFramework:NewButton(parent, parent, name, member, width, height, func, param1, param2, texture, text, shortMethod, buttonTemplate, textTemplate)
+	function detailsFramework:CreateButton(parent, callback, width, height, text, param1, param2, texture, member, name, shortMethod, buttonTemplate, textTemplate)
+		return detailsFramework:NewButton(parent, parent, name, member, width, height, callback, param1, param2, texture, text, shortMethod, buttonTemplate, textTemplate)
 	end
 
 	---@return df_button
@@ -949,10 +1016,38 @@ end
 		buttonObject.disabled_overlay = _G[name .. "_TextureDisabled"]
 
 		texture = texture or ""
-		buttonObject.button:SetNormalTexture(texture)
-		buttonObject.button:SetPushedTexture(texture)
-		buttonObject.button:SetDisabledTexture(texture)
-		buttonObject.button:SetHighlightTexture(texture, "ADD")
+		
+		--check for atlas
+		local bSetTexture = false
+		if (type(texture) == "string") then
+			local isAtlas = C_Texture.GetAtlasInfo(texture)
+			if (isAtlas) then
+				buttonObject.button:SetNormalTexture("")
+				buttonObject.button:GetNormalTexture():SetAtlas(texture)
+				buttonObject.button:SetPushedTexture("")
+				buttonObject.button:GetPushedTexture():SetAtlas(texture)
+				buttonObject.button:SetDisabledTexture("")
+				buttonObject.button:GetDisabledTexture():SetAtlas(texture)
+				buttonObject.button:SetHighlightTexture("")
+				buttonObject.button:GetHighlightTexture():SetAtlas(texture)
+				bSetTexture = true
+
+			elseif (detailsFramework:IsHtmlColor(texture)) then
+				local r, g, b, a = detailsFramework:ParseColors(texture)
+				self.icon:SetColorTexture(r, g, b, a)
+				bSetTexture = true
+
+			elseif (texture == "") then
+				bSetTexture = true -- setting textures with an empty string causes green rectangles
+			end
+		end
+
+		if (not bSetTexture) then
+			buttonObject.button:SetNormalTexture(texture)
+			buttonObject.button:SetPushedTexture(texture)
+			buttonObject.button:SetDisabledTexture(texture)
+			buttonObject.button:SetHighlightTexture(texture, "ADD")
+		end
 
 		local locTable = text
 		detailsFramework.Language.SetTextWithLocTableWithDefault(buttonObject.button.text, locTable, text)
@@ -1037,7 +1132,7 @@ end
 ------------------------------------------------------------------------------------------------------------
 --color picker button
 	local pickcolorCallback = function(self, red, green, blue, alpha, button)
-		alpha = math.abs(alpha - 1)
+		alpha = math.max(0, math.min(1, alpha))
 		button.MyObject.color_texture:SetVertexColor(red, green, blue, alpha)
 
 		--safecall
@@ -1047,7 +1142,7 @@ end
 
 	local pickcolor = function(self)
 		local red, green, blue, alpha = self.MyObject.color_texture:GetVertexColor()
-		alpha = math.abs(alpha - 1)
+		alpha = math.max(0, math.min(1, alpha))
 		detailsFramework:ColorPick(self, red, green, blue, alpha, pickcolorCallback)
 	end
 
@@ -1064,6 +1159,15 @@ end
 		return self.color_texture:GetVertexColor()
 	end
 
+	---@class df_colorpickbutton : df_button
+	---@field color_callback function
+	---@field Cancel function
+	---@field SetColor function
+	---@field GetColor function
+	---@field __iscolorpicker boolean
+	---@field color_texture texture
+	---@field background_texture texture
+
 	---create a button which opens a color picker when clicked
 	---@param parent table
 	---@param name string|nil
@@ -1071,39 +1175,44 @@ end
 	---@param callback function
 	---@param alpha number|nil
 	---@param buttonTemplate table|nil
-	---@return table|nil
+	---@return df_colorpickbutton
 	function detailsFramework:CreateColorPickButton(parent, name, member, callback, alpha, buttonTemplate)
 		return detailsFramework:NewColorPickButton(parent, name, member, callback, alpha, buttonTemplate)
 	end
 
 	function detailsFramework:NewColorPickButton(parent, name, member, callback, alpha, buttonTemplate)
-		--button
-		local colorPickButton = detailsFramework:NewButton(parent, _, name, member, 16, 16, pickcolor, alpha, "param2", nil, nil, nil, buttonTemplate)
+		local colorPickButton = detailsFramework:NewButton(parent, _, name, member, 16, 16, pickcolor, alpha, "param2")
+		---@cast colorPickButton df_colorpickbutton
+
 		colorPickButton.color_callback = callback
 		colorPickButton.Cancel = colorpickCancel
 		colorPickButton.SetColor = setColorPickColor
 		colorPickButton.GetColor = getColorPickColor
+		colorPickButton.__iscolorpicker = true
 
 		colorPickButton.HookList.OnColorChanged = {}
 
-		if (not buttonTemplate) then
-			colorPickButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
-		end
-
 		--background showing a grid to indicate the transparency
-		local background = colorPickButton:CreateTexture(nil, "background", nil, 2)
+		local background = colorPickButton:CreateTexture("$parentBackgroupTransparency", "background", nil, 2)
 		background:SetPoint("topleft", colorPickButton.widget, "topleft", 0, 0)
 		background:SetPoint("bottomright", colorPickButton.widget, "bottomright", 0, 0)
-		background:SetTexture([[Interface\ITEMSOCKETINGFRAME\UI-EMPTYSOCKET]])
-		background:SetTexCoord(3/16, 13/16, 3/16, 13/16)
+		background:SetAtlas("AnimCreate_Icon_Texture")
 		background:SetAlpha(0.3)
+		colorPickButton.background_texture = background
 
 		--texture which shows the texture color
-		local colorTexture = detailsFramework:NewImage(colorPickButton, nil, 16, 16, nil, nil, "color_texture", "$parentTex")
+		local colorTexture = colorPickButton:CreateTexture("$parentTex", "overlay")
 		colorTexture:SetColorTexture(1, 1, 1)
 		colorTexture:SetPoint("topleft", colorPickButton.widget, "topleft", 0, 0)
 		colorTexture:SetPoint("bottomright", colorPickButton.widget, "bottomright", 0, 0)
 		colorTexture:SetDrawLayer("background", 3)
+		colorPickButton.color_texture = colorTexture
+
+		if (not buttonTemplate) then
+			colorPickButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+		else
+			colorPickButton:SetTemplate(buttonTemplate)
+		end
 
 		return colorPickButton
 	end
@@ -1290,7 +1399,7 @@ detailsFramework.TabButtonMixin = {
 ---@return df_tabbutton
 function detailsFramework:CreateTabButton(parent, frameName)
 	---@type df_tabbutton
-	local tabButton = CreateFrame("button", frameName, parent)
+	local tabButton = CreateFrame("button", frameName, parent, "BackdropTemplate")
 	tabButton:SetSize(50, 20)
 	tabButton.bIsSelected = false
 

@@ -1,6 +1,11 @@
 local Details = Details
+local addonName, Details222 = ...
+
 local AceLocale = LibStub("AceLocale-3.0")
 local Loc = AceLocale:GetLocale( "Details" )
+
+---@type detailsframework
+local detailsFramework = DetailsFramework
 
 local gump = Details.gump
 local _
@@ -11,29 +16,12 @@ local floor = math.floor
 local gameCooltip = GameCooltip
 local CreateFrame = CreateFrame
 
---api locals
-do
-	local bookmarkFrame = CreateFrame("frame", "DetailsSwitchPanel", UIParent,"BackdropTemplate")
-	bookmarkFrame:SetPoint("center", UIParent, "center", 500, -300)
-	bookmarkFrame:SetWidth(250)
-	bookmarkFrame:SetHeight(100)
-	bookmarkFrame:SetFrameStrata("FULLSCREEN")
-	bookmarkFrame:SetFrameLevel(16)
-	bookmarkFrame.editing_window = nil
+local disabledColor = {.3, .3, .3, 0.0}
 
-	DetailsFramework:ApplyStandardBackdrop(bookmarkFrame, true)
-	bookmarkFrame:SetBackdropBorderColor(0, 0, 0, 0)
+function Details222.CreateAllDisplaysFrame()
+	local icon_size = 16
+	local text_color = {.9, .9, .9, 1}
 
-	local backgroundGradientTexture = DetailsFramework:CreateTexture(bookmarkFrame, {gradient = "vertical", fromColor = {0, 0, 0, 0.2}, toColor = {0, 0, 0, 0.4}}, 1, 1, "artwork", {0, 1, 0, 1})
-	backgroundGradientTexture:SetAllPoints()
-
-	bookmarkFrame.HoverOverBackground = {.6, .6, .6, .2}
-	bookmarkFrame.hoverOverTexture = bookmarkFrame:CreateTexture(nil, "border")
-	bookmarkFrame.hoverOverTexture:SetTexture(unpack(bookmarkFrame.HoverOverBackground))
-	bookmarkFrame.hoverOverTexture:SetSize(130, 18)
-	bookmarkFrame.hoverOverTexture:Hide()
-
-	--~all
 	local allDisplaysFrame = CreateFrame("frame", "DetailsAllAttributesFrame", UIParent,"BackdropTemplate")
 	allDisplaysFrame:SetFrameStrata("tooltip")
 	allDisplaysFrame:Hide()
@@ -41,9 +29,18 @@ do
 	allDisplaysFrame:SetClampedToScreen(true)
 	allDisplaysFrame.buttons = {}
 
-	DetailsFramework:ApplyStandardBackdrop(allDisplaysFrame)
-	allDisplaysFrame.BackgroundGradientTexture = DetailsFramework:CreateTexture(allDisplaysFrame, {gradient = "vertical", fromColor = "transparent", toColor = {0, 0, 0, 0.2}}, 1, 1, "artwork", {0, 1, 0, 1})
-	allDisplaysFrame.BackgroundGradientTexture:SetAllPoints()
+	function allDisplaysFrame:UpdateFontStrings()
+		for _, attribute in ipairs(allDisplaysFrame.buttons) do
+			for _, button in ipairs(attribute) do
+				Details222.BreakdownWindow.ApplyFontSettings(button.text)
+			end
+		end
+	end
+
+	DetailsSwitchPanel.all_switch = allDisplaysFrame
+
+	detailsFramework:AddRoundedCornersToFrame(allDisplaysFrame, Details.PlayerBreakdown.RoundedCornerPreset)
+	Details:RegisterFrameToColor(allDisplaysFrame)
 
 	allDisplaysFrame:SetScript("OnMouseDown", function(self, button)
 		if (button == "RightButton") then
@@ -78,8 +75,6 @@ do
 	allDisplaysFrame:SetScript("OnHide", function(self)
 		allDisplaysFrame:SetScript("OnUpdate", nil)
 	end)
-
-	DetailsSwitchPanel.all_switch = allDisplaysFrame
 
 	function Details:ShowAllSwitch()
 		if (allDisplaysFrame:IsShown()) then
@@ -135,9 +130,6 @@ do
 	hoverOverTexture:SetTexture(unpack(DetailsSwitchPanel.HoverOverBackground))
 	hoverOverTexture:SetSize(130, 18)
 	hoverOverTexture:Hide()
-
-	local icon_size = 16
-	local text_color = {.9, .9, .9, 1}
 
 	local on_enter_all_switch_button = function(self)
 		Details:SetFontColor(self.text, "orange")
@@ -211,15 +203,16 @@ do
 	end
 
 	allDisplaysFrame:SetScript("OnShow", function()
+		local isApoc = detailsFramework.IsAddonApocalypseWow()
 
 		if (not allDisplaysFrame.already_built) then
 			local x, y = 8, -8
 			allDisplaysFrame.higher_counter = 0
+			local doNothingFunction = function()end
 
 			for attribute = 1, Details.atributos[0] do
 				--localized attribute name
 				local loc_attribute_name = Details.atributos.lista [attribute]
-
 				local title_icon = allDisplaysFrame:CreateTexture(nil, "overlay")
 				title_icon:SetPoint("topleft", x, y)
 				local texture, l, r, t, b = Details:GetAttributeIcon (attribute)
@@ -233,26 +226,51 @@ do
 				y = y - 20
 
 				allDisplaysFrame.buttons [attribute] = {}
+
+				local amountAdded = 0
+
 				for i = 1, #Details.sub_atributos [attribute].lista do
-					--localized sub attribute name
-					local loc_sub_attribute_name = Details.sub_atributos [attribute].lista [i]
-					local button = create_all_switch_button (attribute, i, x, y)
+					local mainDisplay, subDisplay = attribute, i
+					local damageMeterType = Details222.BParser.GetDamageMeterTypeFromDisplay(mainDisplay, subDisplay)
+					local canAdd = (isApoc and damageMeterType < 100) or (not isApoc)
 
-					button.text:SetText(loc_sub_attribute_name)
-					Details:SetFontSize(button.text, Details.all_switch_config.font_size)
+					if canAdd then
+						--localized sub attribute name
+						local loc_sub_attribute_name = Details.sub_atributos [attribute].lista [i]
+						local button = create_all_switch_button (attribute, i, x, y)
 
-					allDisplaysFrame.check_text_size (button.text)
-					button.texture:SetTexture(Details.sub_atributos [attribute].icones [i] [1])
-					button.texture:SetTexCoord(unpack(Details.sub_atributos [attribute].icones [i] [2]))
-					table.insert(allDisplaysFrame.buttons [attribute], button)
-					y = y - 17
+						button.text:SetText(loc_sub_attribute_name)
+						Details:SetFontSize(button.text, Details.all_switch_config.font_size)
+
+						allDisplaysFrame.check_text_size (button.text)
+						button.texture:SetTexture(Details.sub_atributos [attribute].icones [i] [1])
+						button.texture:SetTexCoord(unpack(Details.sub_atributos [attribute].icones [i] [2]))
+						table.insert(allDisplaysFrame.buttons [attribute], button)
+
+						if detailsFramework.IsAddonApocalypseWow() and damageMeterType >= 100 then
+							button:Hide()
+							button.text:SetTextColor(unpack(disabledColor))
+							button:SetScript("OnClick", nil)
+							button:SetScript("OnEnter", nil)
+							button:SetScript("OnLeave", nil)
+							button.texture:Hide()
+						end
+
+						y = y - 17
+						amountAdded = amountAdded + 1
+					end
 				end
 
 				if (#Details.sub_atributos [attribute].lista > allDisplaysFrame.higher_counter) then
 					allDisplaysFrame.higher_counter = #Details.sub_atributos [attribute].lista
 				end
 
-				x = x + 130
+				if amountAdded > 0 then
+					x = x + 130
+				else
+					title_str:Hide()
+					title_icon:Hide()
+				end
 				y = -8
 			end
 
@@ -299,23 +317,28 @@ do
 
 		local button_index = 1
 		for i = #Details.custom, 1, -1 do
-			local button = allDisplaysFrame.buttons [custom_index] [button_index]
-			if (not button) then
-				button = create_all_switch_button (custom_index, i, allDisplaysFrame.x, allDisplaysFrame.y)
-				table.insert(allDisplaysFrame.buttons [custom_index], button)
-				allDisplaysFrame.y = allDisplaysFrame.y - 17
-			end
-
 			local custom = Details.custom [i]
-			button.text:SetText(custom.name)
-			Details:SetFontSize(button.text, Details.all_switch_config.font_size)
+			local canAdd = (isApoc and custom.apoc) or (not isApoc)
 
-			allDisplaysFrame.check_text_size (button.text)
-			button.texture:SetTexture(custom.icon)
-			button.texture:SetTexCoord(0.078125, 0.921875, 0.078125, 0.921875)
-			button:Show()
+			if canAdd then
+				local button = allDisplaysFrame.buttons[custom_index][button_index]
+				if (not button) then
+					button = create_all_switch_button(custom_index, i, allDisplaysFrame.x, allDisplaysFrame.y)
+					table.insert(allDisplaysFrame.buttons[custom_index], button)
+					allDisplaysFrame.y = allDisplaysFrame.y - 17
+				end
 
-			button_index = button_index + 1
+				button.text:SetText(custom.name)
+				Details:SetFontSize(button.text, Details.all_switch_config.font_size)
+
+				allDisplaysFrame.check_text_size(button.text)
+				button.texture:SetTexture(custom.icon)
+				button.texture:SetTexCoord(0.078125, 0.921875, 0.078125, 0.921875)
+
+				button:Show()
+
+				button_index = button_index + 1
+			end
 		end
 
 		if (#Details.custom > allDisplaysFrame.higher_counter) then
@@ -369,7 +392,12 @@ do
 			allDisplaysFrame.higher_counter = button_index
 		end
 
-		allDisplaysFrame:SetHeight((allDisplaysFrame.higher_counter * 17) + 20 + 16)
+		if detailsFramework.IsAddonApocalypseWow() then
+			allDisplaysFrame:SetHeight((5 * 17) + 20 + 16)
+		else
+			allDisplaysFrame:SetHeight((allDisplaysFrame.higher_counter * 17) + 20 + 16)
+		end
+
 		allDisplaysFrame:SetWidth((120 * 6) + (6 * 2) + (12 * 4))
 
 		allDisplaysFrame.last_up = GetTime()
@@ -379,6 +407,32 @@ do
 		allDisplaysFrame:SetScale(Details.all_switch_config.scale)
 	end)
 
+end
+
+--api locals
+do
+	local bookmarkFrame = CreateFrame("frame", "DetailsSwitchPanel", UIParent, "BackdropTemplate")
+	bookmarkFrame:SetPoint("center", UIParent, "center", 500, -300)
+	bookmarkFrame:SetWidth(250)
+	bookmarkFrame:SetHeight(100)
+	bookmarkFrame:SetFrameStrata("FULLSCREEN")
+	bookmarkFrame:SetFrameLevel(16)
+	bookmarkFrame.editing_window = nil
+
+	DetailsFramework:ApplyStandardBackdrop(bookmarkFrame, true)
+	bookmarkFrame:SetBackdropBorderColor(0, 0, 0, 0)
+
+	local backgroundGradientTexture = DetailsFramework:CreateTexture(bookmarkFrame, {gradient = "vertical", fromColor = {0, 0, 0, 0.2}, toColor = {0, 0, 0, 0.4}}, 1, 1, "artwork", {0, 1, 0, 1})
+	backgroundGradientTexture:SetAllPoints()
+
+	bookmarkFrame.HoverOverBackground = {.6, .6, .6, .2}
+	bookmarkFrame.hoverOverTexture = bookmarkFrame:CreateTexture(nil, "border")
+	bookmarkFrame.hoverOverTexture:SetTexture(unpack(bookmarkFrame.HoverOverBackground))
+	bookmarkFrame.hoverOverTexture:SetSize(130, 18)
+	bookmarkFrame.hoverOverTexture:Hide()
+
+	local icon_size = 16
+	local text_color = {.9, .9, .9, 1}
 
 ---------------------------------------------------------------------------------------------------------------------------
 
@@ -433,7 +487,7 @@ end
 function Details.switch:ShowMe(instancia)
 	Details.switch.current_instancia = instancia
 
-	if (IsControlKeyDown()) then
+	if (IsControlKeyDown()) then --close window
 		if (not Details.tutorial.ctrl_click_close_tutorial) then
 			if (not DetailsCtrlCloseWindowPanelTutorial) then
 				local tutorialFrame = CreateFrame("frame", "DetailsCtrlCloseWindowPanelTutorial", Details.switch.frame, "BackdropTemplate")
@@ -487,7 +541,7 @@ function Details.switch:ShowMe(instancia)
 
 		return instancia:ShutDown()
 
-	elseif (IsShiftKeyDown()) then
+	elseif (IsShiftKeyDown()) then --segments view
 		if (not Details.switch.segments_blocks) then
 			local segment_switch = function(self, button, segment)
 				if (button == "LeftButton") then
@@ -677,6 +731,14 @@ function Details.switch:ShowMe(instancia)
 		return
 
 	else
+		if (Details.no_bookmark) then
+			return
+		end
+
+		if (Details.no_bookmark_on_combat and InCombatLockdown()) then
+			return
+		end
+
 		if (Details.switch.segments_blocks) then
 			Details.switch:ClearSegmentBlocks()
 		end
@@ -926,6 +988,7 @@ function Details.switch:Update()
 
 	local offset = FauxScrollFrame_GetOffset(DetailsSwitchPanelScroll)
 	local slots_shown = Details.switch.slots
+	local showOneAdd = false
 
 	for i = 1, slots_shown do
 		--bookmark index
@@ -954,6 +1017,9 @@ function Details.switch:Update()
 		local vcolor
 		local add
 		local textColor = "white"
+
+		local showThisButton = true
+		
 
 		if (options and options.sub_atributo) then
 			if (options.atributo == 5) then --custom
@@ -1017,10 +1083,30 @@ function Details.switch:Update()
 			name = Loc["STRING_SWITCH_CLICKME"]
 			vcolor = vertex_color_unknown
 			add = true
+
+			if Details.switch_missing_type == 1 then
+				if not showOneAdd then
+					showOneAdd = true
+				else
+					showThisButton = false
+				end
+
+			elseif Details.switch_missing_type == 2 then
+				showThisButton = false
+			end
 		end
 
-		button:Show()
-		button.button2:Show()
+		if showThisButton then
+			button:Show()
+			button.button2:Show()
+		else
+			button:Hide()
+			button.button2:Hide()
+			C_Timer.After(0, function()
+				button:Hide()
+				button.button2:Hide()
+			end)
+		end
 
 		local width, height = button.button2.texto:GetSize()
 		button.button2.texto:SetWidth(300)

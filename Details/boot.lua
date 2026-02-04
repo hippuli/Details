@@ -1,8 +1,9 @@
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --global name declaration
---local _StartDebugTime = debugprofilestop() print(debugprofilestop() - _StartDebugTime)
---test if the packager will deploy to wago
+--use lua-language-server annotations to help the linter:
 --https://github.com/LuaLS/lua-language-server/wiki/Annotations#documenting-types
+--follow definitions declared in the file definitions.lua
+--follow game api definitions in the file LibLuaServer.lua
 
 		_ = nil
 		_G.Details = LibStub("AceAddon-3.0"):NewAddon("_detalhes", "AceTimer-3.0", "AceComm-3.0", "AceSerializer-3.0", "NickTag-1.0")
@@ -10,15 +11,19 @@
 		--add the original name to the global namespace
 		_detalhes = _G.Details --[[GLOBAL]]
 
+		__details_debug = __details_debug or {}
+		if (__details_debug.prescience_timeline) then
+			wipe(__details_debug.prescience_timeline)
+		end
 		local addonName, Details222 = ...
-		local version, build, date, tocversion = GetBuildInfo()
-
-		Details.build_counter = 12044
-		Details.alpha_build_counter = 12044 --if this is higher than the regular counter, use it instead
+		local version, build, date, tvs = GetBuildInfo()
+		Details.build_counter = 14350
+		Details.alpha_build_counter = 14350 --if this is higher than the regular counter, use it instead
 		Details.dont_open_news = true
 		Details.game_version = version
 		Details.userversion = version .. " " .. Details.build_counter
-		Details.realversion = 155 --core version, this is used to check API version for scripts and plugins (see alias below)
+		Details.realversion = 167 --core version, this is used to check API version for scripts and plugins (see alias below)
+		Details.gametoc = tvs
 		Details.APIVersion = Details.realversion --core version
 		Details.version = Details.userversion .. " (core " .. Details.realversion .. ")" --simple stirng to show to players
 
@@ -35,10 +40,13 @@
 		Details.BFACORE = 131 --core version on BFA launch
 		Details.SHADOWLANDSCORE = 143 --core version on Shadowlands launch
 		Details.DRAGONFLIGHT = 147 --core version on Dragonflight launch
+		Details.TBCANNIVERSARY = 166
+		Details.V11CORE = 160 --core version on V11 launch
+		Details.V12CORE = 166 --core version on V12 launch
 
 		Details = Details
 
-		local gameVersionPrefix = "VWD" --vanilla, wrath, dragonflight
+		local gameVersionPrefix = "VCPM" --v1, v2 v5, v12
 
 		Details.gameVersionPrefix = gameVersionPrefix
 
@@ -60,11 +68,27 @@
 			return Details.gameVersionPrefix .. " " .. Details.build_counter .. " " .. alphaId .. " " .. Details.game_version .. ""
 		end
 
+		Details.DefaultTooltipIconSize = 20
+		local isWowApocalypse = (tvs >= 120000)
+
+		function Details222.UpdateIsAllowed()
+			if (isWowApocalypse) then
+				if InCombatLockdown() then
+					return false
+				end
+			end
+			return true
+		end
+
 		--namespace for the player breakdown window
 		Details.PlayerBreakdown = {}
 		Details222.PlayerBreakdown = {
 			DamageSpellsCache = {}
 		}
+
+		Details222.StartUp = {}
+
+		Details222.Unknown = _G["UNKNOWN"]
 
 		--namespace color
 		Details222.ColorScheme = {
@@ -74,19 +98,99 @@
 			return Details222.ColorScheme[colorScheme]
 		end
 
+		function Details222.DebugMsg(...)
+			if (Details.debug) then
+				print("|cFFCCAAAADetails! Debug:|r", ...)
+			end
+		end
+
+		--cache of frames to call :SetColor() when the color scheme changes
+		Details222.RegisteredFramesToColor = {}
+
+		Details222.TrainingDummiesNpcId = {
+			[194649] = true, --valdraken
+			[189617] = true, --valdraken
+			[194644] = true, --valdraken
+			[198594] = true, --valdraken
+			[194643] = true, --valdraken
+			[189632] = true, --valdraken
+			[194648] = true, --valdraken
+			[194646] = true, --valdraken
+			[197834] = true, --valdraken
+			[31146] = true, --orgrimmar
+			[153285] = true, --orgrimmar
+			[114840] = true, --orgrimmar
+			[114832] = true, --stormwind
+			[153292] = true, --stormwind
+		}
+
+		---@type details_storage_feature
+		---@diagnostic disable-next-line: missing-fields
+		local storage = {
+			DiffNames = {"normal", "heroic", "mythic", "raidfinder", "10player", "25player", "10playerheroic", "25playerheroic", "raidfinderclassic", "raidfindertimewalking", "timewalking"},
+			DiffNamesHash = {normal = 14, heroic = 15, mythic = 16, raidfinder = 17, ["10player"] = 3, ["25player"] = 4, ["10playerheroic"] = 5, ["25playerheroic"] = 6, raidfinderclassic = 7, raidfindertimewalking = 151, timewalking = 33},
+			DiffIdToName = {
+				[14] = "normal",
+				[15] = "heroic",
+				[16] = "mythic",
+				[17] = "raidfinder",
+				[3] = "10player",
+				[4] = "25player",
+				[5] = "10playerheroic",
+				[6] = "25playerheroic",
+				[7] = "raidfinderclassic",
+				[8] = "mythicdungeon",
+				[151] = "raidfindertimewalking",
+				[33] = "timewalking"
+			},
+			IsDebug = false
+		}
+		Details222.storage = storage
+
 		--namespace for damage spells (spellTable)
 		Details222.DamageSpells = {}
 		--namespace for texture
 		Details222.Textures = {}
+
+		Details222.Debug = {
+			DebugPets = false,
+			DebugPlayerPets = false,
+			DebugBuff = false,
+		}
+
+		---@type details_allinonewindow
+		---@diagnostic disable-next-line: missing-fields
+		Details222.AllInOneWindow = {}
+
+		Details222.Tvs = tvs
 		--namespace for pet
 		Details222.Pets = {}
+		Details222.PetContainer = {
+			---@type table<guid, petdata>
+			Pets = {},
+			---@type table<guid, boolean>
+			IgnoredActors = {},
+			---table that stores the player guid as keys and their petguid as values
+			---this is useful to know which pets are the legit class pet from the UNIT_PET event
+			---@type table<guid, guid>
+			UnitPetCache = {},
+		}
+
 		--auto run code
 		Details222.AutoRunCode = {}
 		--options panel
 		Details222.OptionsPanel = {}
+		--store bar icons (left side of the damage bar)
+		Details222.BarIconSetList = {}
 		Details222.Instances = {}
 		Details222.Combat = {}
-		Details222.MythicPlus = {}
+		Details222.BParser = {}
+		Details222.MythicPlus = {
+			Charts = {},
+			Frames = {},
+		}
+		Details222.Notes = {}
+		Details222.MythicPlusBreakdown = {}
 		Details222.EJCache = {}
 		Details222.Segments = {}
 		Details222.Tables = {}
@@ -102,6 +206,8 @@
 		Details222.GuessSpecSchedules = {
 			Schedules = {},
 		}
+		Details222.Profiling = {}
+		Details222.ProfilingCache = {}
 		Details222.TimeMachine = {}
 		Details222.OnUseItem = {Trinkets = {}}
 
@@ -120,11 +226,328 @@
 			[1473] = {},
 		}
 
+		Details222.IgnoredWorldAuras = {}
+		Details222.OneHourAuras = {}
+
+		Details222.Parser = {}
+
 		Details222.Actors = {}
 
 		Details222.CurrentDPS = {
 			Cache = {}
 		}
+		--store all data from the encounter journal
+		Details222.EncounterJournalDump = {}
+		--aura scanner
+		Details222.AuraScan = {}
+
+		---@type instancedifficulty
+		Details222.InstanceDifficulty = {
+			["DungeonNormal"] = 1,
+			["DungeonHeroic"] = 2,
+			["DungeonMythic"] = 23,
+			["DungeonMythicPlus"] = 8,
+			["RaidLFR"] = 17,
+			["RaidNormal"] = 14,
+			["RaidHeroic"] = 15,
+			["RaidMythic"] = 16,
+		}
+		Details222.DHook = hooksecurefunc
+
+		local emptyFunction = function()end
+		local emptyTable = {}
+
+		---context manager is a system that evaluates where the player is and create a set of extra rules that fit the content the player is doing
+		---@class contextmanager : table
+		---@field instanceType string
+		---@field instanceName string
+		---@field instanceId number
+		---@field instanceDifficulty number
+		---@field lastInstanceType string
+		---@field lastInstanceName string
+		---@field lastInstanceDifficulty number
+		---@field contextId string
+		---@field bContextStarted boolean
+		---@field bContextFinished boolean
+		---@field bHasContext boolean
+		---@field fHasLostInterest function
+		---@field fOnContextFinished function
+		---@field fOnCombatFinished function
+		---@field eventFrame frame
+		---@field DetailsEventListener table
+		---@field contextEventTable table
+		---@field StartContext function
+		---@field CheckContextInterest function
+		---@field FinishContext function
+		---@field GetContext function
+
+		DAMAGE_METER_SESSIONPARAMETER_TYPE = "type"
+		DAMAGE_METER_SESSIONPARAMETER_ID = "id"
+
+		--tells what is the activity the player is doing
+		Details222.ContextManager = {
+			instanceType = "INIT",
+			instanceName = "INIT",
+			instanceDifficulty = 0,
+			lastInstanceType = "INIT",
+			lastInstanceName = "INIT",
+			lastInstanceDifficulty = 0,
+			contextId = "INIT",
+			bContextStarted = false,
+			bContextFinished = false,
+			bHasContext = false,
+			fOnContextFinished = emptyFunction,
+			fHasLostInterest = emptyFunction,
+			fOnCombatFinished = emptyFunction,
+			contextEventTable = emptyTable,
+
+			eventFrame = CreateFrame("frame"),
+
+			---start a new context, this is called from the CheckContextInterest() function
+			---@param self contextmanager
+			---@param instanceId number
+			---@param instanceName string
+			---@param instanceType string
+			---@param difficultyId number
+			---@param contextEventTable table
+			---@param fOnCombatFinished function run when details! finishes a combat
+			---@param fOnContextFinished function run when the context is finished
+			---@param fHasLostInterest function run when CheckContextInterest() fails to find a context
+			StartContext = function(self, instanceId, instanceName, instanceType, difficultyId, contextEventTable, fOnCombatFinished, fOnContextFinished, fHasLostInterest)
+				self.instanceType = instanceType
+				self.instanceName = instanceName
+				self.instanceId = instanceId
+				self.instanceDifficulty = difficultyId
+				self.bContextStarted = true
+				self.bContextFinished = false
+				self.bHasContext = true
+				self.fOnContextFinished = fOnContextFinished
+				self.fHasLostInterest = fHasLostInterest
+				self.fOnCombatFinished = fOnCombatFinished
+				self.contextEventTable = contextEventTable
+
+				--create an event listener to grab the event when Details! finishes a combat
+				if (not self.DetailsEventListener) then
+					self.DetailsEventListener = Details:CreateEventListener()
+				end
+				self.DetailsEventListener:UnregisterEvent("COMBAT_PLAYER_LEAVE")
+				--register the onFinishCombat for the context
+				self.DetailsEventListener:RegisterEvent("COMBAT_PLAYER_LEAVE", fOnCombatFinished)
+
+				--unregister all events
+				self.eventFrame:UnregisterAllEvents()
+
+				--register the events that the context require
+				for i = 1, #contextEventTable.events do
+					self.eventFrame:RegisterEvent(contextEventTable.events[i])
+				end
+
+				--if the callback function returns true, the context is finished
+				self.eventFrame:SetScript("OnEvent", function(eventFrame, event, ...)
+					if (contextEventTable.callback(event, ...)) then
+						Details222.DebugMsg("context manager event", event)
+						--context completed
+						Details222.DebugMsg("Context Completed!")
+						C_Timer.After(1, fOnContextFinished)
+						C_Timer.After(1.1, function() self:FinishContext() end)
+					end
+				end)
+
+				Details222.DebugMsg("a new context has been set.")
+			end,
+
+			---check if the player is in a context of interest
+			---@param self contextmanager
+			---@param instanceId number
+			---@param instanceName string
+			---@param instanceType string
+			---@param difficultyId number
+			CheckContextInterest = function(self, instanceId, instanceName, instanceType, difficultyId)
+				Details222.DebugMsg("Checking for new context:", instanceId, instanceName, instanceType, difficultyId)
+				--normal, heroic and mythic0 dungeons on Retail
+				local diffTable = Details222.InstanceDifficulty
+				if (difficultyId == diffTable.DungeonNormal or difficultyId == diffTable.DungeonHeroic or difficultyId == diffTable.DungeonMythic) then
+					if (DetailsFramework.IsDragonflightAndBeyond()) then
+						--check if the player is in the same context
+						if (self.bHasContext and self.instanceId == instanceId and self.instanceType == instanceType and self.instanceName == instanceName and self.instanceDifficulty == difficultyId) then
+							return
+						end
+
+						do return end
+
+						--if a context is found, finishes it before a new one is created
+						if (self.bHasContext) then
+							--discard the context
+							Details222.DebugMsg("had an active context, finishing it.")
+							self:FinishContext()
+						end
+
+						--set a new context where at the end of the dungeon it creates an overall segment for the run
+						--function to verify if context is finished, in this case if all objectives of the dungeon has been completed by listening to the SCENARIO_COMPLETED event
+						local contextEventTable = {
+							events = {"SCENARIO_COMPLETED"},
+							callback = function(...)
+								--when a context return true, the context is finished and will trigger a call on the fOnContextFinished function
+								return true
+							end
+						}
+
+						--create a contextId to tag combats that are part of the same context
+						self.contextId = instanceName .. tostring(time())
+
+						--called when a combat finishes and this context is still active
+						local fOnCombatFinished = function()
+							local currentCombat = Details:GetCurrentCombat()
+							currentCombat.context = self.contextId
+						end
+
+						---this function evaluates if this context has lost its interest and should be discarded, return true if the context is no longer valid
+						local fHasLostInterest = function(instanceId, instanceName, instanceType, difficultyId)
+							--check if the player is still in the same context
+							if (self.instanceId ~= instanceId or self.instanceType ~= instanceType or self.instanceName ~= instanceName or self.instanceDifficulty ~= difficultyId) then
+								return true
+							end
+						end
+
+						--will ba called when the context finishes, in this case when the SCENARIO_COMPLETED event is triggered
+						local fOnContextFinished = function()
+							--check if this is not a mythic+ run
+							if (C_ChallengeMode) then
+								if (C_ChallengeMode.GetActiveChallengeMapID() or C_ChallengeMode.GetActiveKeystoneInfo() or C_ChallengeMode.IsChallengeModeActive()) then
+									print("did not start as this is a m+ run")
+									return
+								else
+									print("this is not a m+ run")
+								end
+							end
+
+							---@type combat[]
+							local interestCombats = {}
+							--get all segments
+							local segments = Details:GetCombatSegments()
+							for i = 1, #segments do
+								local segment = segments[i]
+								if (segment.context == self.contextId) then
+									interestCombats[#interestCombats+1] = segment
+								end
+							end
+
+							if (#interestCombats > 0) then
+								--start a new combat
+								Details222.StartCombat()
+
+								Details222.DebugMsg("merging", #interestCombats, "combats into a single combat.")
+
+								---@type combat
+								local currentCombat = Details:GetCurrentCombat()
+
+								--iterate over all interest combats
+								for i = 1, #interestCombats do
+									local interestCombat = interestCombats[i]
+									--add the combat to the new combat
+									currentCombat:AddCombat(interestCombat, i == 1, i == #interestCombats)
+								end
+
+								Details222.DebugMsg("combat time:", currentCombat:GetCombatTime())
+
+								--finish the new combat
+								Details:EndCombat()
+
+								currentCombat.is_trash = false
+								currentCombat.combat_type = DETAILS_SEGMENTTYPE_DUNGEON_OVERALL
+								currentCombat.is_dungeon_overall = true
+							end
+
+							Details222.DebugMsg("overall segment has been created.")
+						end
+
+						self:StartContext(instanceId, instanceName, instanceType, difficultyId, contextEventTable, fOnCombatFinished, fOnContextFinished, fHasLostInterest)
+
+						return
+					end
+				else
+					--if no context is found, check if there is a current context and check if it lost its interest
+					if (self.bHasContext) then
+						if (self.fHasLostInterest(self, instanceId, instanceName, instanceType, difficultyId)) then
+							Details222.DebugMsg("no context found, but context is active, finishing the current context.")
+							--discard the context
+							self:FinishContext()
+						end
+					end
+				end
+			end,
+
+			---finish the current context
+			---@param self contextmanager
+			FinishContext = function(self)
+				if (not self.bHasContext or not self.bContextStarted or self.bContextFinished) then
+					return
+				end
+
+				--mark this context as finished
+				self.bContextFinished = true
+
+				--reset context
+				self.instanceType = "INIT"
+				self.instanceName = "INIT"
+				self.contextId = "INIT"
+				self.instanceId = -1
+				self.instanceDifficulty = 0
+				self.bContextStarted = false
+				self.bHasContext = false
+				self.fOnContextFinished = emptyFunction
+				self.fHasLostInterest = emptyFunction
+				self.fOnCombatFinished = emptyFunction
+				self.contextEventTable = emptyTable
+			end,
+
+			---return the current contextIndex
+			---@param self contextmanager
+			---@return number|boolean, string?, string?, number?
+			GetContext = function(self)
+				if (self.bHasContext) then
+					return self.instanceId, self.instanceName, self.instanceType, self.instanceDifficulty
+				end
+				return false
+			end,
+		}
+
+        local GetSpellInfo = C_Spell and C_Spell.GetSpellInfo or GetSpellInfo
+        Details222.GetSpellInfo = GetSpellInfo
+
+		local UnitBuff = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex or UnitBuff
+		Details222.UnitBuff = UnitBuff
+
+		local UnitDebuff = C_UnitAuras and C_UnitAuras.GetDebuffDataByIndex or UnitDebuff
+		Details222.UnitDebuff = UnitDebuff
+
+        if (C_Spell and C_Spell.GetSpellInfo) then
+            Details222.GetSpellInfo = function(...)
+                local result = GetSpellInfo(...)
+                if result then
+                    return result.name, 1, result.iconID
+                end
+            end
+        end
+
+        if (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then
+			Details222.UnitBuff = function(unitToken, index, filter)
+				local auraData = UnitBuff(unitToken, index, filter)
+				if (not auraData) then
+					return nil
+				end
+				return AuraUtil.UnpackAuraData(auraData)
+			end
+
+			Details222.UnitDebuff = function(unitToken, index, filter)
+				local auraData = UnitDebuff(unitToken, index, filter)
+				if (not auraData) then
+					return nil
+				end
+				return AuraUtil.UnpackAuraData(auraData)
+			end
+        end
+
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --initialization stuff
@@ -136,296 +559,9 @@ do
 
 	local Loc = _G.LibStub("AceLocale-3.0"):GetLocale("Details")
 
-	--change logs
-	--[=[
-	--]=]
-
 	local news = {
-		{"v10.2.0.12023.155", "November 08th, 2023"},
-		"Several fixes to make the addon work with the combat log changes done on patch 10.2.0.",
-		"Added trinket data for patch 10.2.0.",
-		"Fixed an issue with death tooltips going off-screen when the window is too close to a screen border.",
-		"Fixed a spam of errors during battlegrounds when an enemy player heal with a dot spell.",
-
-		{"v10.1.7.12012.155", "October 27th, 2023"},
-		"Implemented [Pip's Emerald Friendship Badge] trinket buffs.",
-		"Implemented the amount of times 'On Use' trinkets are used.",
-		"10.2 trinket damage spells renamed to the item name.",
-		"Framework Upgrade",
-		"Lib OpenRaid Upgrade.",
-		"Fixed the issue 'Segment Not Found' while resetting data.",
-		"Fixed Rogue icon",
-		"Fixed an issue with the healing merge amount on death tooltips (Flamanis).",
-		"Fixed 'extraStatusbar' showing in wrong views (non-player-dmg) (Continuity).",
-		"Removed LibCompress (Flamanis).",
-
-		{"v10.1.7.11914.155", "September 13th, 2023"},
-		"Added an extra bar within the evoker damage bar, this new bar when hovered over shows the buff uptime of Ebon Might and Prescience on all players.",
-		"ToC Files of all plugins got updated.",
-		"Fixed the error 'Attempt to compare string with number' on vanilla (Flamanis).",
-		"Fixed the error 'object:ToolTip() is invalid'.",
-
-		{"v10.1.7.11901.155", "September 09th, 2023"},
-		"Evoker Predicted Damage improvements.",
-		"Improved spellId check for first hit when entering a combat (Flamanis).",
-		"Replaced Classic Era deprecated functions (Flamanis).",
-		"Change DF/pictureedit frame heirarchy to allow for close button and Done button to work right (Flamanis).",
-		"Unlocked Retail Streamer plugin for Classic Era (Flamanis).",
-		"Attempt to fix death log healing spam where a spell has multiple heals in the same millisecond.",
-		"Fixed an error with the old comparison window.",
-
-		{"v10.1.7.11856.155", "August 13th, 2023"},
-		"Fixed an issue with importing a profile with a corrupted time type.",
-		"Added Elemental Shaman overload spells (WillowGryph).",
-
-		{"v10.1.5.11855.155", "August 12th, 2023"},
-		"Forcing update interval to 0.1 on arenas matches using the real-time dps feature.",
-		"More parser cleanups and code improvements.",
-		"Auras tab now ignores regular 'world auras' (those weekly buffs of reputation, etc)",
-		"Fixed the player info tooltip (hovering the spec icon) height not being updated for Evoker Predicted damage.",
-		"Framework Update.",
-		"Lib Open Raid Update.",
-		"Code cleanup and refactoring.",
-
-		{"v10.1.5.11773.151", "July 30th, 2023"},
-		"Add animIn/animOut checks for the welcome window (Flamanis)",
-		"Fixed an issue with players with the time measurement 'real time' (Flamanis).",
-
-		{"v10.1.5.11770.151", "July 29th, 2023"},
-		"Removed 'Real Time DPS' from the time measure dropdown.",
-		"Added 'Show 'Real Time' DPS' toggle to show real time dps while in combat.",
-		"Added 'Order Bars By Real Time DPS' toggle to order bars by the amount of real time dps.",
-		"Added 'Always Use Real Time in Arenas' toggle to always use real time dps in Arenas.",
-		"Added .last_dps_realtime to player actors, caches the latest real time dps calculated.",
-		"Fixed breakdown window not opening when there's player data available at the window.",
-		"Fixed Augmented Evoker buffs placed before the combat start not being counted.",
-		"Cyclical pet ownership fix (Flamanis).",
-		"Added: Details:FindBuffCastedBy(unitId, buffSpellId, casterName), return up to 19 parameters",
-		"Framework and OpenRaid upgrades.",
-
-		{"v10.1.5.11718.151", "July 20th, 2023"},
-		"Renamed damageActor.extra_bar to damageActor.total_extra",
-		"Added: Details:ShowExtraStatusbar(barLineObject, amount, amountPercent, extraAmount)",
-		"Add the evoker predicted damage to overall data.",
-		"If any damage actor has 'total_extra' bigger than 0, the extra bar is shown.",
-		"List of spec names for spec tooltip detection now load at Startup not at lua compiling.",
-		"Renamed InstaciaCallFunction to InstanceCallDetailsFunc.",
-		"Fixed things about the Real Time DPS; Open Raid Lib Update.",
-		"Fixed Details:FindDebuffDuration(unitId, spellId, casterName) which wasn't taking the casterName in consideration.",
-		"Fixes on Encounter Details plugin.",
-		"Fixed an issue of clicking in a plugin icon in the title bar of Details! but the plugin wouldn't open.",
-
-		{"v10.1.5.11718.151", "July 13th, 2023"},
-		"Added: Hovering over the Augmented Evoker icon shows the Evoker's damage, along with an estimated damage done by its buffs.",
-		"Auras tab at the Breakdown Window, now shows damage buffs received from other players (Ebon Might, Precience and Power Infusion).",
-		"Auras tab now ignores regular 'world auras' (those weekly buffs of reputation, etc).",
-		"Added individual bar for Neltharus Weapons. Weapons on final boss and the Burning Chain (Flamanis).",
-		"Update interval is set to 0.1 on arenas matches using the real-time dps feature.",
-		"Evoker's predicted damage done is now also shown in the overall data.",
-		"Removed 'Real Time DPS' from the time measure dropdown.",
-		"Added 'Show Real Time DPS' toggle to show real time dps while in combat.",
-		"Added 'Order Bars By Real Time DPS' toggle to order bars by the amount of real time dps.",
-		"Added 'Always Use Real Time in Arenas' toggle to always use real time dps in Arenas.",
-		"Fixed an issue where the Breakdown Window was not refreshing when the data was reset.",
-		"Fixed an issue where clicking on a plugin icon in the Details! title bar would not open the plugin.",
-		"Fixed bugs reported for the Encounter Details plugin.",
-		"Fixed bugs reported for the Real Time DPS.",
-		"Fixed Welcome Window sometimes not opening for new instalations (Flamanis).",
-		"*Combat start code verification cleanup (Flamanis).",
-		"*Added .last_dps_realtime to player actors, caches the latest real time dps calculated.",
-		"*Added: actordamage.total_extra for cases where there's a secondary bar for a damage actor.",
-		"*If any damage actor has 'total_extra' bigger than 0, the extra bar is shown.",
-		"*Added: Details:ShowExtraStatusbar(lineFrame, amount, extraAmount, totalAmount, topAmount, instanceObject, onEnterFunc, onLeaveFunc)",
-		"*Renamed 'InstaciaCallFunction' to 'InstanceCallDetailsFunc'.",
-		"*Renamed 'PegaHabilidade' to GetOrCreateSpell.",
-		"*Renamed 'PegarCombatente' to 'GetOrCreateActor'.",
-		"*List of spec names for spec tooltip detection now load at Startup not at lua compiling stage.",
-		"*Fixed custom displays ignoring actor.customColor.",
-		"*Details! Framework and LibOpenRaid upgrades.",
-
-		{"v10.1.0.11700.151", "July 11th, 2023"},
-		"Effective time is used when displaying tooltips information.",
-		"Wrap the specid name locatlization cache in a Details Framework check.",
-		"More fixes for real time dps.",
-		"Don't populate overall segment on load and force refresh window on segment swap.",
-		"Added: spec detection from the specialization name shown on tooltip.",
-		"Improvements to class detection by using GetPlayerInfoByGUID()",
-		"Removed Breath of Eons from spec detection for augmentation evokers.",
-		"When DBM/BW send a callback, check if the current combat in details is valid.",
-		"When the actor is considered a ungroupped player, check if that player has a spec and show the spec icon instead.",
-		"Segments locked don't swap windows to overall.",
-		"Use the new API 'SetSegment' over 'TrocaTabela' for the segment selector.",
-		"Sort damage taken tooltip on damage amount.",
-		"Added: Details:GetBossEncounterTexture(encounterName); Added combat.bossIcon; Added combat.bossTimers.",
-		"Added: Details:DoesCombatWithUIDExists(uniqueCombatId); Details:GetCombatByUID(uniqueCombatId); combat:GetCombatUID().",
-		"Added: Details:RemoveSegmentByCombatObject(combatObject).",
-		"Details:UnpackDeathTable(deathTable) now return the spec of the character as the last parameter returned.",
-		"classCombat:GetTimeData(chartName) now check if the combat has a TimeData table or return an empty table; Added classCombat:EraseTimeData(chartName).",
-		"Code for Dispel has been modernized, deathTable now includes the key .spec.",
-		"Added: key .unixtime into is_boss to know when the boss was killed.",
-		"Fixed an issue with auto run code not saving properly.",
-		"Ignore vessel periodic damage when out of combat.",
-		"More fixes for Augmentation Evoker on 10.1.5.",
-		"Another wave of code changes, modernizations and refactoring.",
-		"Combat Objects which has been discarded due to any reason will have the boolean member: __destroyed set to true. With this change, 3rd party code can see if the data cached is up to date or obsolete.",
-		"Removed several deprecated code from March 2023 and earlier.",
-		"Large amount of code cleanup and refactoring, some functions got renamed, they are listed below:",
-		"- 'TravarTempos' renamed to 'LockActivityTime'.",
-		"- 'ClearTempTables' renamed to 'ClearCacheTables'.",
-		"- 'SpellIsDot' renamed to 'SetAsDotSpell'.",
-		"- 'FlagCurrentCombat' remamed to 'FlagNewCombat_PVPState'.",
-		"- 'UpdateContainerCombatentes' renamed to 'UpdatePetCache'.",
-		"- 'segmentClass:AddCombat(combatObject)' renamed to 'Details222.Combat.AddCombat(combatToBeAdded)'.",
-		"- 'CurrentCombat.verifica_combate' timer is now obsolete.",
-		"- 'Details.last_closed_combat' is now obsolete.",
-		"- 'Details.EstaEmCombate' is now obsolete.",
-		"- 'Details.options' is now obsolete.",
-		"- Spec Guess Timers are now stored within Details222.GuessSpecSchedules.Schedules, all timers are killed at the end of the combat or at a data reset.",
-		"- Initial time delay to send the startup signal (event sent when details has started) reduced from 5 to 4 seconds.",
-		"- Fixed some division by zero on ptr 10.1.5.",
-		"- Fixed DETAILS_STARTED event not triggering in some cases due to 'event not registered'.",
-		"Fixed Auto Run Code window not closing by click on the close button.",
-		"Set up statusbar options instead of using metatable.",
-		"More code cleanup and framework updates.",
-		"TimeData code modernizations.",
-		"Implementations to show plugins in the breakdown window.",
-		"Damage Taken by Spell overhaul, now it uses modern Details API.",
-		"Time Machine overhaul.",
-		"Splitted the window_playerbreakdown_spells.lua into three more files.",
-		"Added IconTexture directive to the TOC files.",
-		"Disabled time captures for spellTables, this should be done by a plugin.",
-		"Replacing table.wipe with Details:Destroy().",
-
-		{"v10.1.0.11022.151", "May 20th, 2023"},
-		"Breakdown pet options has changed to: 'Group Pets by Their Names' or 'Group Pets by Their Spells'.",
-		"Evoker empowered level now ocupies less space on the rectangle showing the damage by empower level.",
-		"Another Framework update.",
-		"Fixed an issue where some pet bars still showing the owner name.",
-		"Fixed an issue with the player selector on Breakdown window causing an error when selecting some players.",
-		"Fixed an issue caused by opening the breakdown window while seeing healing overall.",
-		"Fixed an issue with the min and max damage of a spell when viewing the 'merged' damage of two or more spells.",
-		"Fixed an issue with the Raid Check plugin throwing an error on Shuffle Arenas.",
-		"Fixed shields for Classic versions (Flamanis).",
-
-		{"v10.1.0.11011.151", "May 13th, 2023"},
-		"Added options: 'Group Player Spells With Same Name' and 'Group Pets By Spell' on the breakdown options.",
-		"Added combat log options for 'Calculate Shield Wasted Amount' and 'Calculate Energy Wasted Amount' under the options > Combat Log.",
-		"Framework and OpenRaid Updated.",
-		"Breakdown window won't go off screen anymore.",
-		"Breakdown now shows damage per phase if the segment has more than one phase.",
-		"Overhealing can now be seen within the Healing Done breakdown. This removes the necessity of having to go back and forward between healing done and overhealing.",
-		"Friendly Fire can now be seen in the breakdown window by clicking on the player bar (before the click on the player bar opened the report screen).",
-		"Healing Taken can also be seen on the breakdown window.",
-		"Some options from the Breakdown options got removed, most of them are now auto calculated by the system.",
-		"Fixed an issue where the Frags display was showinig death of friendly objects like Efflorescense.",
-		"Fixed an issue where item damage was showing 'Unknown Item' on cold logins.",
-		"Fixed defenses gauge (miss, dodge, parry) not showing in the spell details on the breakdown window.",
-
-		{"v10.1.0.10985.151", "May 4th, 2023"},
-		"The Breakdown Window has been completely rebuilt from the ground up and now includes support for several new features.",
-		"A significant portion of the back-end code has been revamped, resulting in improved performance and stability.",
-		"Combatlog now supports options, check them at the Combat Log section in the options panel.",
-		"Big plugin updates with improvements to Cast Log and new features for Advanced Death Log.",
-		"Added Real-time dps bar for arena streamers.",
-		"Flamanis:",
-		"Changed Pet Ownership detection to be hopefully more robust for future patches.",
-		"Added option to merge Atonement, Contrition, Ancient Teachings, and Awakened Faeline with their Crits, in the Combat Log section.",
-		"Added DemonHunter and Evoker Defensive cooldowns.",
-		"Readded option to have M+ Overall Segment only contain Bosses.",
-		"Fixed issue with swapping to/from Tiny Threat and other plugins using bookmarks.",
-		"Fixed position persistency for Statusbar elements.",
-		"Fixed alpha channel persistency for certain color options.",
-		"Fixed stack overflow related to changing option tabs or profiles too many times.",
-		"Fixed the highlight image of a bar icon not swapping to the new icon upon scrolling.",
-		"Fixed issues related to the new Left Text Offset position.",
-		"Fixed the wrong options being unusable with Aligned Text Columns enabled.",
-
-		{"v10.0.5.10661.147", "Mar 1st, 2023"},
-		"Major fixes and updates on the Event Tracker feature (for streamers).",
-		"When trying to import a profile with a name that already exists, it'll rename it and import (Flamanis).",
-		"Ignoring Fodder to the Flame npcs (Flamanis).",
-		"Mythic plus overall segments now have the list of player deaths.",
-
-		{"v10.0.2.10333.147", "Feb 08th, 2023"},
-		"Fixed load errors on Wrath.",
-		"Fixed enemy cast time in the death tooltip sometimes showing off time.",
-		"Allow negative offsets on Aligned Text Columns (Flamanis).",
-		"Fixed Shaman and Warrior spec detection (Flamanis).",
-		"More Demon hunter abilities added to be merged (Flamanis).",
-		"Added duck polymorph to Mage CCs (Flamanis).",
-		"Fixed offline player showing as party members in the /keys panel and players from other realms not caching (Flamanis).",
-		"Fixed an issue with some options not updating when the window is selected at the bottom right corner of the options panel (Flamanis).",
-		"Fixed some issues with the breakdown window for 'Damage Taken' (Flamanis).",
-		"Fixed an issue where sometimes the 'Always Show Me' wouldn't show if the total bar is enabled (Ricodyn).",
-
-		{"v10.0.2.10333.147", "Jan 04th, 2023"},
-		"Enemy Cast (non-interrupted) now is shown in the death log.",
-		"Damage Done by Blessing of Winter and Summer now counts torward the paladin.",
-		"Tooltips for Mythic Dungeon segments in the segments menu, now brings more information about the combat.",
-		"List of Potions updated (Jooooo)",
-		"Priest Spirit of Redemption now shows in the Death Log breakdown.",
-		"/keystone doesn't show the player realm anymore",
-		"When importing a profile, the confirmation box (asking a name for the new profile) got a check box to opt-out of importing Code.",
-		"Major fixes for Guild Sync and Statistics window: /details stats",
-		"Raid Check (plugin): Added M+ Score and fixed the flask usage.",
-		"Streamer (plugin): Fixed the plugin window hidding after login.",
-		"Fixed Evoker and several other cooldowns which wasn't showing in the cooldown usage display.",
-		"Fixed a small freeze that was happening when hovering over the segments menu.",
-		"Fixed some slash commands not working for deDE localization.",
-		"Fixed Rogue Akaari's Soul not getting detected properly during combat (Flamanis).",
-		"Fixed the sorting columns on /keystone panel which key stone level wasn't sorting correctly (Benjamin H.).",
-		"Fix for Fire Elemental on Wrath (Flamanis).",
-		"Fixed Evoker bug where empowered abilities wasn't showing in overall data (Flamanis).",
-		"Fixed an error when Details! attempted to use Ghost Frame in Wrath, but Ghost frame doesn't exists on that expansion (Flamanis).",
-		"Fixed spec detection for some specs on retail (Flamanis).",
-		"Fixed ToC for Compare2, how it also works on Wrath (Flamanis).",
-		"Fixed an issue with buff and debuff uptime sometimes not closing properly after the combat.",
-
-
-		{"v10.0.2.10333.147", "Nov 18th, 2022"},
-		"Added two checkboxes for Merge Pet and Player spell on the Breakdown window.",
-		"Added uptime for Hunter's Pet Frenzy Buff, it now show in the 'Auras' tab in the Breakdown Window.",
-		"/played is showing something new!",
-		"Options panel now closes by pressing Escape (Flamanis).",
-
-		{"v10.0.2.10277.146", "Nov 18th, 2022"},
-		"REMINDER: '/details coach' to get damage/healing/deaths in real time as the 21st person (coach) for the next raid tier in dragonflight.",
-		"New Compare tab: recreated from scratch, this new Compare has no player limitation, pets merged, bigger lines.",
-		"New <Plugin: Cast Log> show a time line of spells used by players in the group, Raid Leader: show all attack and defense cooldowns used by the raid (download it now on wago or curseforge).",
-		"Wago: Details! Standalone version is now hosted on addons.wago.io and WowUp.com.",
-		"",
-
-		"Added a little damage chart for your spells in the Player Breakdown Window.",
-		"Details! will count class play time, everyone using Details! from day 1 in Dragonflight should have an accurate play time in the class.",
-		"Visual updates on default skin.",
-		"All panels from options to plugins received visual updates.",
-		"Profiles won't export Auto Hide automations to stop issues with players not knowing why the window is hidding.",
-		"Details! should decrease the amount of chat spam errors and instead show them in the bug report window like al the other addons.",
-		"Player Details! Breakdown window: player selection now uses the same font as the regular window.",
-		"Death log tooltip revamp for more clarity to see the ability name and the damage done.",
-		"Dragonflight Trinkets damage will show the trinket name after the spell name.",
-		"'/details scroll' feature: spell name and spell id can now be copied, the frame got a scale bar.",
-		"Added option: 'Use Dynamic Overall Damage', if enabled swap to Dynamic Overall Damage when combat start while showing Overall Damage.",
-		"Fixed for most of the user having the problem of the encounter time not showing.",
-		"Fixed most of the issues with the melee spell name being called 'Word of Recall'.",
-		"Details! Damage Meter, Deatails! Framework, LibOpenRaid has been successfully updated to Dragonflight.",
-		"New class Evoker are now fully supported by Details!.",
-		"",
-		"Fixed an issue where warlocks was entering in combat from a debug doing damage (Flamanis).",
-		"Fixed 'Auto of Range' problem in Wrath of the Lich King (Flamanis).",
-		"Fixed a bug with custom displays when showing players outside the player group (Flamanis).",
-		"Fixed an issue where specs wheren't sent on Wrath (Flamanis).",
-		"Fixed Buff Uptime Tooltip where the buff had zero uptime (Flamanis)",
-		"Fixed shield damage preventing rare error when the absorption was zero (Flamanis).",
-		"Fixed chat embed system built in Details! from the Skins section (Flamanis).",
-		"Fixed an issue where damage in battlegrounds was not being sync with battleground score board in Wrath (Flamanis).",
-		"",
-		"New Slash Commands:",
-		"/playedclass: show how much time you have played this class on this expansion.",
-		"/dumpt <anything>: show the value of any table, global, spellId, etc.",
-		"/details auras: show a panel with your current auras, spell ids and spell payload.",
-		"/details perf: show performance issues when you get a warning about freezes due to UpdateAddOnMemoryUsage().",
-		"/details npcid: get the npc id of your target (a box is shown with the number ready to be copied).",
+		{"v11.0.7.13388.161", "January 19th, 2025"},
+		"Check Details! Damage Meter github page for update notes.",
 	}
 
 	local newsString = "|cFFF1F1F1"
@@ -459,6 +595,8 @@ do
 		_detalhes.debug_chr = false
 		_detalhes.opened_windows = 0
 		_detalhes.last_combat_time = 0
+		_detalhes.last_zone_type = "INIT"
+		_detalhes.last_zone_id = -1
 
 		--store functions to create options frame
 		Details.optionsSection = {}
@@ -467,9 +605,9 @@ do
 		--armazenas as fun��es do parser - All parse functions
 			_detalhes.parser = {}
 			_detalhes.parser_functions = {}
-			_detalhes.parser_frame = CreateFrame("Frame")
+			Details222.parser_frame = CreateFrame("Frame")
+			Details222.parser_frame:Hide()
 			_detalhes.pvp_parser_frame = CreateFrame("Frame")
-			_detalhes.parser_frame:Hide()
 
 			_detalhes.MacroList = {
 				{Name = "Click on Your Own Bar", Desc = "To open the player details window on your character, like if you click on your bar in the damage window. The number '1' is the window number where it'll click.", MacroText = "/script Details:OpenPlayerDetails(1)"},
@@ -482,9 +620,11 @@ do
 				{Name = "Report What is Shown In the Window", Desc = "Report the current data shown in the window, the number 1 is the window number, replace it to report another window.", MacroText = "/script Details:FastReportWindow(1)"},
 			}
 
-		--current instances of the exp (need to maintain)
-			_detalhes.InstancesToStoreData = { --mapId
-				[2549] = true, --amirdrassil
+		--current instances of the exp (need to maintain) - deprecated july 2024 - should do this automatically
+			Details.InstancesToStoreData = { --mapId
+				[2769] = true, --Liberation of Undermine v11.1 T2
+				[2657] = true, --Nerub-ar Palace v11 T1
+				[2294] = true, --Nerub-ar Palace v11 T1
 			}
 
 		--store shield information for absorbs
@@ -508,6 +648,10 @@ do
 		Details.Colors = {}
 		function Details.Colors.GetMenuTextColor()
 			return "orange"
+		end
+
+		function Details:GetTextureAtlasTable()
+			return Details.TextureAtlas
 		end
 
 		--armazena as fun��es para inicializa��o dos dados - Metatable functions
@@ -534,12 +678,12 @@ do
 		--ignored pets
 			_detalhes.pets_ignored = {}
 			_detalhes.pets_no_owner = {}
-			_detalhes.pets_players = {}
 		--dual candidates
 			_detalhes.duel_candidates = {}
 		--armazena as skins dispon�veis para as janelas
 			_detalhes.skins = {}
 		--armazena os hooks das fun��es do parser
+			---@type table<detailshook, function[]>
 			_detalhes.hooks = {}
 		--informa��es sobre a luta do boss atual
 			_detalhes.encounter_end_table = {}
@@ -719,9 +863,10 @@ do
 
 		--plugin templates
 
-		_detalhes.gump:NewColor("DETAILS_PLUGIN_BUTTONTEXT_COLOR", 0.9999, 0.8196, 0, 1)
+		DetailsFramework:NewColor("DETAILS_PLUGIN_BUTTONTEXT_COLOR", 0.9999, 0.8196, 0, 1)
+		DetailsFramework:NewColor("DETAILS_HEADER_YELLOW", 227/255, 186/255, 4/255)
 
-		_detalhes.gump:InstallTemplate("button", "DETAILS_PLUGINPANEL_BUTTON_TEMPLATE",
+		DetailsFramework:InstallTemplate("button", "DETAILS_PLUGINPANEL_BUTTON_TEMPLATE",
 			{
 				backdrop = {edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1, bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true},
 				backdropcolor = {0, 0, 0, .5},
@@ -729,7 +874,7 @@ do
 				onentercolor = {0.3, 0.3, 0.3, .5},
 			}
 		)
-		_detalhes.gump:InstallTemplate("button", "DETAILS_PLUGINPANEL_BUTTONSELECTED_TEMPLATE",
+		DetailsFramework:InstallTemplate("button", "DETAILS_PLUGINPANEL_BUTTONSELECTED_TEMPLATE",
 			{
 				backdrop = {edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1, bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true},
 				backdropcolor = {0, 0, 0, .5},
@@ -738,7 +883,7 @@ do
 			}
 		)
 
-		_detalhes.gump:InstallTemplate("button", "DETAILS_PLUGIN_BUTTON_TEMPLATE",
+		DetailsFramework:InstallTemplate("button", "DETAILS_PLUGIN_BUTTON_TEMPLATE",
 			{
 				backdrop = {edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1, bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true},
 				backdropcolor = {1, 1, 1, .5},
@@ -750,7 +895,7 @@ do
 				height = 20,
 			}
 		)
-		_detalhes.gump:InstallTemplate("button", "DETAILS_PLUGIN_BUTTONSELECTED_TEMPLATE",
+		DetailsFramework:InstallTemplate("button", "DETAILS_PLUGIN_BUTTONSELECTED_TEMPLATE",
 			{
 				backdrop = {edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1, bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true},
 				backdropcolor = {1, 1, 1, .5},
@@ -763,14 +908,14 @@ do
 			}
 		)
 
-		_detalhes.gump:InstallTemplate("button", "DETAILS_TAB_BUTTON_TEMPLATE",
+		DetailsFramework:InstallTemplate("button", "DETAILS_TAB_BUTTON_TEMPLATE",
 			{
 				width = 100,
 				height = 20,
 			},
 			"DETAILS_PLUGIN_BUTTON_TEMPLATE"
 		)
-		_detalhes.gump:InstallTemplate("button","DETAILS_TAB_BUTTONSELECTED_TEMPLATE",
+		DetailsFramework:InstallTemplate("button","DETAILS_TAB_BUTTONSELECTED_TEMPLATE",
 			{
 				width = 100,
 				height = 20,
@@ -778,57 +923,57 @@ do
 			"DETAILS_PLUGIN_BUTTONSELECTED_TEMPLATE"
 		)
 
-		_detalhes.PluginsGlobalNames = {}
-		_detalhes.PluginsLocalizedNames = {}
+		Details.PluginsGlobalNames = {}
+		Details.PluginsLocalizedNames = {}
 
 		--raid -------------------------------------------------------------------
 			--general function for raid mode plugins
-				_detalhes.RaidTables = {}
+				Details.RaidTables = {}
 			--menu for raid modes
-				_detalhes.RaidTables.Menu = {}
+				Details.RaidTables.Menu = {}
 			--plugin objects for raid mode
-				_detalhes.RaidTables.Plugins = {}
+				Details.RaidTables.Plugins = {}
 			--name to plugin object
-				_detalhes.RaidTables.NameTable = {}
+				Details.RaidTables.NameTable = {}
 			--using by
-				_detalhes.RaidTables.InstancesInUse = {}
-				_detalhes.RaidTables.PluginsInUse = {}
+				Details.RaidTables.InstancesInUse = {}
+				Details.RaidTables.PluginsInUse = {}
 
 		--solo -------------------------------------------------------------------
 			--general functions for solo mode plugins
-				_detalhes.SoloTables = {}
+				Details.SoloTables = {}
 			--maintain plugin menu
-				_detalhes.SoloTables.Menu = {}
+				Details.SoloTables.Menu = {}
 			--plugins objects for solo mode
-				_detalhes.SoloTables.Plugins = {}
+				Details.SoloTables.Plugins = {}
 			--name to plugin object
-				_detalhes.SoloTables.NameTable = {}
+				Details.SoloTables.NameTable = {}
 
 		--toolbar -------------------------------------------------------------------
 			--plugins container
-				_detalhes.ToolBar = {}
+				Details.ToolBar = {}
 			--current showing icons
-				_detalhes.ToolBar.Shown = {}
-				_detalhes.ToolBar.AllButtons = {}
+				Details.ToolBar.Shown = {}
+				Details.ToolBar.AllButtons = {}
 			--plugin objects
-				_detalhes.ToolBar.Plugins = {}
+				Details.ToolBar.Plugins = {}
 			--name to plugin object
-				_detalhes.ToolBar.NameTable = {}
-				_detalhes.ToolBar.Menu = {}
+				Details.ToolBar.NameTable = {}
+				Details.ToolBar.Menu = {}
 
 		--statusbar -------------------------------------------------------------------
 			--plugins container
-				_detalhes.StatusBar = {}
+				Details.StatusBar = {}
 			--maintain plugin menu
-				_detalhes.StatusBar.Menu = {}
+				Details.StatusBar.Menu = {}
 			--plugins object
-				_detalhes.StatusBar.Plugins = {}
+				Details.StatusBar.Plugins = {}
 			--name to plugin object
-				_detalhes.StatusBar.NameTable = {}
+				Details.StatusBar.NameTable = {}
 
 		--constants
 
-		if(DetailsFramework.IsWotLKWow()) then
+		if (DetailsFramework.IsWotLKWow()) then
 			--[[global]] DETAILS_HEALTH_POTION_ID = 33447 -- Runic Healing Potion
 			--[[global]] DETAILS_HEALTH_POTION2_ID = 41166 -- Runic Healing Injector
 			--[[global]] DETAILS_REJU_POTION_ID = 40087 -- Powerful Rejuvenation Potion
@@ -881,7 +1026,7 @@ do
 		--[[global]] DETAILS_MODE_GROUP = 2
 		--[[global]] DETAILS_MODE_ALL = 3
 
-		_detalhes._detalhes_props = {
+		Details._detalhes_props = {
 			DATA_TYPE_START = 1,	--Something on start
 			DATA_TYPE_END = 2,	--Something on end
 
@@ -890,34 +1035,34 @@ do
 			MODO_ALL = 3,		--Everything
 			MODO_RAID = 4,	--Raid
 		}
-		_detalhes.modos = {
+		Details.modos = {
 			alone = 1, --Solo
 			group = 2,	--Group
 			all = 3,	--Everything
 			raid = 4	--Raid
 		}
 
-		_detalhes.divisores = {
+		Details.divisores = {
 			abre = "(",	--open
 			fecha = ")",	--close
 			colocacao = ". " --dot
 		}
 
-		_detalhes.role_texcoord = {
+		Details.role_texcoord = {
 			DAMAGER = "72:130:69:127",
 			HEALER = "72:130:2:60",
 			TANK = "5:63:69:127",
 			NONE = "139:196:69:127",
 		}
 
-		_detalhes.role_texcoord_normalized = {
+		Details.role_texcoord_normalized = {
 			DAMAGER = {72/256, 130/256, 69/256, 127/256},
 			HEALER = {72/256, 130/256, 2/256, 60/256},
 			TANK = {5/256, 63/256, 69/256, 127/256},
 			NONE = {139/256, 196/256, 69/256, 127/256},
 		}
 
-		_detalhes.player_class = {
+		Details.player_class = {
 			["HUNTER"] = true,
 			["WARRIOR"] = true,
 			["PALADIN"] = true,
@@ -931,7 +1076,7 @@ do
 			["DEATHKNIGHT"] = true,
 			["DEMONHUNTER"] = true,
 		}
-		_detalhes.classstring_to_classid = {
+		Details.classstring_to_classid = {
 			["WARRIOR"] = 1,
 			["PALADIN"] = 2,
 			["HUNTER"] = 3,
@@ -945,7 +1090,7 @@ do
 			["DRUID"] = 11,
 			["DEMONHUNTER"] = 12,
 		}
-		_detalhes.classid_to_classstring = {
+		Details.classid_to_classstring = {
 			[1] = "WARRIOR",
 			[2] = "PALADIN",
 			[3] = "HUNTER",
@@ -962,7 +1107,7 @@ do
 
 		local Loc = LibStub("AceLocale-3.0"):GetLocale ("Details")
 
-		_detalhes.segmentos = {
+		Details.segmentos = {
 			label = Loc ["STRING_SEGMENT"]..": ",
 			overall = Loc ["STRING_TOTAL"],
 			overall_standard = Loc ["STRING_OVERALL"],
@@ -971,7 +1116,7 @@ do
 			past = Loc ["STRING_FIGHTNUMBER"]
 		}
 
-		_detalhes._detalhes_props["modo_nome"] = {
+		Details._detalhes_props["modo_nome"] = {
 				[_detalhes._detalhes_props["MODO_ALONE"]] = Loc ["STRING_MODE_SELF"],
 				[_detalhes._detalhes_props["MODO_GROUP"]] = Loc ["STRING_MODE_GROUP"],
 				[_detalhes._detalhes_props["MODO_ALL"]] = Loc ["STRING_MODE_ALL"],
@@ -983,7 +1128,7 @@ do
 		--[[global]] DETAILS_MODE_GROUP = 2
 		--[[global]] DETAILS_MODE_ALL = 3
 
-		_detalhes.icones = {
+		Details.icones = {
 			--report window
 			report = {
 					up = "Interface\\FriendsFrame\\UI-Toast-FriendOnlineIcon",
@@ -993,7 +1138,7 @@ do
 				}
 		}
 
-		_detalhes.missTypes = {"ABSORB", "BLOCK", "DEFLECT", "DODGE", "EVADE", "IMMUNE", "MISS", "PARRY", "REFLECT", "RESIST"} --do not localize-me
+		Details.missTypes = {"ABSORB", "BLOCK", "DEFLECT", "DODGE", "EVADE", "IMMUNE", "MISS", "PARRY", "REFLECT", "RESIST"} --do not localize-me
 
 
 	function Details.SendHighFive()
@@ -1089,8 +1234,11 @@ do
 	_detalhes.empty_table = {}
 
 	--register textures and fonts for shared media
+		---@type table
 		local SharedMedia = LibStub:GetLibrary ("LibSharedMedia-3.0")
 		--default bars
+		SharedMedia:Register("statusbar", "Details Hyanda Reverse", [[Interface\AddOns\Details\images\bar_textures\bar_hyanda_reverse.png]])
+		SharedMedia:Register("statusbar", "You Are the Best!", [[Interface\AddOns\Details\images\bar_textures\bar_best.png]])
 		SharedMedia:Register("statusbar", "Details Hyanda", [[Interface\AddOns\Details\images\bar_hyanda]])
 
 		SharedMedia:Register("statusbar", "Details D'ictum", [[Interface\AddOns\Details\images\bar4]])
@@ -1098,10 +1246,13 @@ do
 		SharedMedia:Register("statusbar", "Details D'ictum (reverse)", [[Interface\AddOns\Details\images\bar4_reverse]])
 
 		--flat bars
+		SharedMedia:Register("statusbar", "Skyline", [[Interface\AddOns\Details\images\bar_skyline]])
+
 		SharedMedia:Register("statusbar", "Details Serenity", [[Interface\AddOns\Details\images\bar_serenity]])
 		SharedMedia:Register("statusbar", "BantoBar", [[Interface\AddOns\Details\images\BantoBar]])
-		SharedMedia:Register("statusbar", "Skyline", [[Interface\AddOns\Details\images\bar_skyline]])
+		SharedMedia:Register("statusbar", "Skyline Compact", [[Interface\AddOns\Details\images\bar_textures\bar_skyline_compact.png]])
 		SharedMedia:Register("statusbar", "WorldState Score", [[Interface\WorldStateFrame\WORLDSTATEFINALSCORE-HIGHLIGHT]])
+		SharedMedia:Register("statusbar", "AlwaysWork", [[Interface\WorldStateFrame\WORLDSTATEFINALSCORE-HIGHLIGHT]])
 		SharedMedia:Register("statusbar", "DGround", [[Interface\AddOns\Details\images\bar_background]])
 		SharedMedia:Register("statusbar", "Details Flat", [[Interface\AddOns\Details\images\bar_background]])
 		SharedMedia:Register("statusbar", "Splitbar", [[Interface\AddOns\Details\images\bar_textures\split_bar]])
@@ -1131,12 +1282,8 @@ do
 		SharedMedia:Register("sound", "Details Horn", [[Interface\Addons\Details\sounds\Details Horn.ogg]])
 
 		SharedMedia:Register("sound", "Details Warning", [[Interface\Addons\Details\sounds\Details Warning 100.ogg]])
-		--SharedMedia:Register("sound", "Details Warning (Volume 75%)", [[Interface\Addons\Details\sounds\Details Warning 75.ogg]])
-		--SharedMedia:Register("sound", "Details Warning Volume 50%", [[Interface\Addons\Details\sounds\Details Warning 50.ogg]])
-		--SharedMedia:Register("sound", "Details Warning Volume 25%", [[Interface\Addons\Details\sounds\Details Warning 25.ogg]])
-
-
-
+		SharedMedia:Register("sound", "Details Truck", [[Interface\Addons\Details\sounds\Details Truck.ogg]])
+		SharedMedia:Register("sound", "Details Bass Drop", [[Interface\Addons\Details\sounds\bassdrop2.mp3]])
 
 	--dump table contents over chat panel
 		function Details.VarDump(t)
@@ -1148,13 +1295,37 @@ do
 			end
 		end
 
+		local bIsDump = false
+		local waitForSpellLoad = CreateFrame("frame")
+		if (C_EventUtils.IsEventValid("SPELL_TEXT_UPDATE")) then
+			waitForSpellLoad:RegisterEvent("SPELL_TEXT_UPDATE")
+			waitForSpellLoad:SetScript("OnEvent", function(self, event, spellId)
+				if (bIsDump) then
+					dumpt(spellId)
+				end
+			end)
+		end
+
 		function dumpt(value) --[[GLOBAL]]
 			--check if this is a spellId
 			local spellId = tonumber(value)
 			if (spellId) then
-				local spellInfo = {GetSpellInfo(spellId)}
+				local spellInfo = {Details222.GetSpellInfo(spellId)}
 				if (type(spellInfo[1]) == "string") then
-					return Details:Dump(spellInfo)
+					local desc = C_Spell.GetSpellDescription and C_Spell.GetSpellDescription(spellId) or GetSpellDescription(spellId)
+					if (not desc or desc == "") then
+						bIsDump = true
+						return
+					end
+
+					if (C_Spell.GetSpellInfo) then
+						Details:Dump({desc, C_Spell.GetSpellInfo(spellId)})
+						return
+					else
+						return Details:Dump({desc, spellInfo})
+					end
+
+					bIsDump = false
 				end
 			end
 
@@ -1172,51 +1343,65 @@ do
 				for i = 1, #allTooltips do
 					local tooltipName = allTooltips[i]
 					local tooltip = _G[tooltipName]
+					if (tooltip and tooltip:IsVisible()) then
+                        if (tooltip.GetTooltipData) then
+                            local tooltipData = tooltip:GetTooltipData()
+                            if (tooltipData) then
+                                if (tooltip.ItemTooltip and tooltip.ItemTooltip:IsVisible()) then
+                                    local icon = tooltip.ItemTooltip.Icon
+                                    if (icon) then
+                                        local texture = icon:GetTexture()
+                                        local atlas = icon:GetAtlas()
+                                        if (texture or atlas) then
+                                            tooltipData.IconTexture = texture
+                                            tooltipData.IconAtlas = atlas
+                                        end
+                                    end
+                                end
 
-					if (tooltip and tooltip.GetTooltipData and tooltip:IsVisible()) then
-						local tooltipData = tooltip:GetTooltipData()
-						if (tooltipData) then
-							if (tooltip.ItemTooltip and tooltip.ItemTooltip:IsVisible()) then
-								local icon = tooltip.ItemTooltip.Icon
-								if (icon) then
-									local texture = icon:GetTexture()
-									local atlas = icon:GetAtlas()
-									if (texture or atlas) then
-										tooltipData.IconTexture = texture
-										tooltipData.IconAtlas = atlas
-									end
-								end
-							end
+                                if (tooltipData.hyperlink) then
+                                    local itemName, itemLink, itemQuality, itemLevel, itemMinLevel, itemType, itemSubType,
+                                    itemStackCount, itemEquipLoc, itemTexture, sellPrice, classID, subclassID, bindType,
+                                    expacID, setID, isCraftingReagent = GetItemInfo(tooltipData.hyperlink)
 
-							if (tooltipData.hyperlink) then
-								local itemName, itemLink, itemQuality, itemLevel, itemMinLevel, itemType, itemSubType,
-								itemStackCount, itemEquipLoc, itemTexture, sellPrice, classID, subclassID, bindType,
-								expacID, setID, isCraftingReagent = GetItemInfo(tooltipData.hyperlink)
+                                    local itemInfo = {
+                                        itemName = itemName,
+                                        itemLink = itemLink,
+                                        itemQuality = itemQuality,
+                                        itemLevel = itemLevel,
+                                        itemMinLevel = itemMinLevel,
+                                        itemType = itemType,
+                                        itemSubType = itemSubType,
+                                        itemStackCount = itemStackCount,
+                                        itemEquipLoc = itemEquipLoc,
+                                        itemTexture = itemTexture,
+                                        sellPrice = sellPrice,
+                                        classID = classID,
+                                        subclassID = subclassID,
+                                        bindType = bindType,
+                                        expacID = expacID,
+                                        setID = setID,
+                                        isCraftingReagent = isCraftingReagent
+                                    }
+                                    DetailsFramework.table.deploy(tooltipData, itemInfo)
+                                end
 
-								local itemInfo = {
-									itemName = itemName,
-									itemLink = itemLink,
-									itemQuality = itemQuality,
-									itemLevel = itemLevel,
-									itemMinLevel = itemMinLevel,
-									itemType = itemType,
-									itemSubType = itemSubType,
-									itemStackCount = itemStackCount,
-									itemEquipLoc = itemEquipLoc,
-									itemTexture = itemTexture,
-									sellPrice = sellPrice,
-									classID = classID,
-									subclassID = subclassID,
-									bindType = bindType,
-									expacID = expacID,
-									setID = setID,
-									isCraftingReagent = isCraftingReagent
-								}
-								DetailsFramework.table.deploy(tooltipData, itemInfo)
-							end
+                                return Details:Dump(tooltipData)
+                            end
+                        else
+                            local outputTable = {}
+                            for lineNumber = 1, 10 do
+                                local leftText = _G[tooltipName..'TextLeft'..lineNumber]
+                                local rightText = _G[tooltipName..'TextRight'..lineNumber]
+                                if not (leftText and rightText) then
+                                    break
+                                end
 
-							return Details:Dump(tooltipData)
-						end
+                                outputTable[#outputTable+1] = {left = leftText:GetText(), right = rightText:GetText()}
+                            end
+
+                            return Details:Dump(outputTable)
+                        end
 					end
 				end
 			end
@@ -1278,11 +1463,11 @@ do
 		end
 
 	--print messages
-		function _detalhes:Msg(str, arg1, arg2, arg3, arg4)
+		function _detalhes:Msg(str, arg1, arg2, arg3, arg4, arg5)
 			if (self.__name) then
-				print("|cffffaeae" .. self.__name .. "|r |cffcc7c7c(plugin)|r: " .. (str or ""), arg1 or "", arg2 or "", arg3 or "", arg4 or "")
+				print("|cffffaeae" .. self.__name .. "|r |cffcc7c7c(plugin)|r: " .. (str or ""), arg1 or "", arg2 or "", arg3 or "", arg4 or "", arg5 or "")
 			else
-				print(Loc ["STRING_DETAILS1"] .. (str or ""), arg1 or "", arg2 or "", arg3 or "", arg4 or "")
+				print(Loc ["STRING_DETAILS1"] .. (str or ""), arg1 or "", arg2 or "", arg3 or "", arg4 or "", arg5 or "")
 			end
 		end
 
@@ -1294,8 +1479,7 @@ do
 				_detalhes.tabela_historico = _detalhes.historico:CreateNewSegmentDatabase()
 				_detalhes.tabela_overall = _detalhes.combate:NovaTabela()
 				_detalhes.tabela_vigente = _detalhes.combate:NovaTabela (_, _detalhes.tabela_overall)
-				_detalhes.tabela_pets = _detalhes.container_pets:NovoContainer()
-				_detalhes:UpdatePetCache()
+				Details222.PetContainer.Reset()
 
 				_detalhes_database.tabela_overall = nil
 				_detalhes_database.tabela_historico = nil
@@ -1401,118 +1585,50 @@ function Details222.ClassCache.MakeCache()
 	end
 end
 
-Details222.UnitIdCache.Raid = {
-	[1] = "raid1",
-	[2] = "raid2",
-	[3] = "raid3",
-	[4] = "raid4",
-	[5] = "raid5",
-	[6] = "raid6",
-	[7] = "raid7",
-	[8] = "raid8",
-	[9] = "raid9",
-	[10] = "raid10",
-	[11] = "raid11",
-	[12] = "raid12",
-	[13] = "raid13",
-	[14] = "raid14",
-	[15] = "raid15",
-	[16] = "raid16",
-	[17] = "raid17",
-	[18] = "raid18",
-	[19] = "raid19",
-	[20] = "raid20",
-	[21] = "raid21",
-	[22] = "raid22",
-	[23] = "raid23",
-	[24] = "raid24",
-	[25] = "raid25",
-	[26] = "raid26",
-	[27] = "raid27",
-	[28] = "raid28",
-	[29] = "raid29",
-	[30] = "raid30",
-	[31] = "raid31",
-	[32] = "raid32",
-	[33] = "raid33",
-	[34] = "raid34",
-	[35] = "raid35",
-	[36] = "raid36",
-	[37] = "raid37",
-	[38] = "raid38",
-	[39] = "raid39",
-	[40] = "raid40",
-}
+Details222.UnitIdCache.Party = {"player"}
+Details222.UnitIdCache.PartyPet = {"playerpet"}
+for i = 1, 4 do
+	table.insert(Details222.UnitIdCache.Party, "party" .. i)
+	table.insert(Details222.UnitIdCache.PartyPet, "partypet" .. i)
+end
 
-Details222.UnitIdCache.Party = {
-	[1] = "party1",
-	[2] = "party2",
-	[3] = "party3",
-	[4] = "party4",
-}
+Details.PartyUnits = Details222.UnitIdCache.Party
+Details.PartyPetUnits = Details222.UnitIdCache.PartyPet
 
-Details222.UnitIdCache.Boss = {
-	[1] = "boss1",
-	[2] = "boss2",
-	[3] = "boss3",
-	[4] = "boss4",
-	[5] = "boss5",
-	[6] = "boss6",
-	[7] = "boss7",
-	[8] = "boss8",
-	[9] = "boss9",
-}
+Details222.UnitIdCache.Raid = {}
+Details222.UnitIdCache.RaidPet = {}
+Details222.UnitIdCache.RaidTargets = {}
+for i = 1, 40 do
+	Details222.UnitIdCache.Raid[i] = "raid" .. i
+	Details222.UnitIdCache.RaidPet[i] = "raidpet" .. i
+	Details222.UnitIdCache.RaidTargets[i] = "raidtarget" .. i
+end
 
-Details222.UnitIdCache.Nameplate = {
-	[1] = "nameplate1",
-	[2] = "nameplate2",
-	[3] = "nameplate3",
-	[4] = "nameplate4",
-	[5] = "nameplate5",
-	[6] = "nameplate6",
-	[7] = "nameplate7",
-	[8] = "nameplate8",
-	[9] = "nameplate9",
-	[10] = "nameplate10",
-	[11] = "nameplate11",
-	[12] = "nameplate12",
-	[13] = "nameplate13",
-	[14] = "nameplate14",
-	[15] = "nameplate15",
-	[16] = "nameplate16",
-	[17] = "nameplate17",
-	[18] = "nameplate18",
-	[19] = "nameplate19",
-	[20] = "nameplate20",
-	[21] = "nameplate21",
-	[22] = "nameplate22",
-	[23] = "nameplate23",
-	[24] = "nameplate24",
-	[25] = "nameplate25",
-	[26] = "nameplate26",
-	[27] = "nameplate27",
-	[28] = "nameplate28",
-	[29] = "nameplate29",
-	[30] = "nameplate30",
-	[31] = "nameplate31",
-	[32] = "nameplate32",
-	[33] = "nameplate33",
-	[34] = "nameplate34",
-	[35] = "nameplate35",
-	[36] = "nameplate36",
-	[37] = "nameplate37",
-	[38] = "nameplate38",
-	[39] = "nameplate39",
-	[40] = "nameplate40",
-}
+Details.RaidUnits = Details222.UnitIdCache.Raid
+Details.RaidPetUnits = Details222.UnitIdCache.RaidPet
+Details.RaidTargetUnits = Details222.UnitIdCache.RaidTargets
 
-Details222.UnitIdCache.Arena = {
-	[1] = "arena1",
-	[2] = "arena2",
-	[3] = "arena3",
-	[4] = "arena4",
-	[5] = "arena5",
-}
+Details222.UnitIdCache.Boss = {}
+for i = 1, 9 do
+	Details222.UnitIdCache.Boss[i] = "boss" .. i
+end
+
+Details.BossUnits = Details222.UnitIdCache.Boss
+
+Details222.UnitIdCache.Nameplate = {}
+for i = 1, 40 do
+	Details222.UnitIdCache.Nameplate[i] = "nameplate" .. i
+end
+
+Details.NameplateUnits = Details222.UnitIdCache.Nameplate
+
+Details222.UnitIdCache.Arena = {}
+for i = 1, 5 do
+	Details222.UnitIdCache.Arena[i] = "arena" .. i
+end
+
+Details.ArenaUnits = Details222.UnitIdCache.Arena
+
 
 function Details222.Tables.MakeWeakTable(mode)
 	local newTable = {}
@@ -1541,6 +1657,63 @@ end
 ---@param value number
 function Details222.PlayerStats:SetStat(statName, value)
 	Details.player_stats[statName] = value
+end
+
+local profileStartFunc = function(functionName)
+	local profile = Details222.ProfilingCache[functionName]
+
+	if (not profile) then
+		Details222.ProfilingCache[functionName] = {elapsed = 0, startTime = 0, runs = 0}
+		profile = Details222.ProfilingCache[functionName]
+	end
+
+	profile.startTime = debugprofilestop()
+	profile.runs = profile.runs + 1
+end
+
+local profileStopFunc = function(functionName)
+	local profile = Details222.ProfilingCache[functionName]
+	if (profile) then
+		profile.elapsed = profile.elapsed + debugprofilestop() - profile.startTime
+	end
+end
+
+function Details222.Profiling.ProfileStart()end
+function Details222.Profiling.ProfileStop()end
+
+function Details222.Profiling.EnableProfiler()
+	Details222.Profiling.ProfileStart = profileStartFunc
+	Details222.Profiling.ProfileStop = profileStopFunc
+end
+
+function Details222.Profiling.DisableProfiler()
+	Details222.Profiling.ProfileStart = function()end
+	Details222.Profiling.ProfileStop = function()end
+end
+
+function Details222.Profiling.ResetProfiler()
+	table.wipe(Details222.ProfilingCache)
+end
+
+if (select(4, GetBuildInfo()) >= 100000) then
+	Details222.Profiling.EnableProfiler()
+end
+
+function Details:ProfilerResult()
+	local resultTable = {}
+	local total = 0
+
+	for functionName, profile in pairs(Details222.ProfilingCache) do
+		local runTime = string.format("%.3f", profile.elapsed / 1000)
+		resultTable[functionName] = runTime .. " ms | runs: " .. profile.runs
+		total = total + profile.elapsed
+	end
+
+	resultTable["Total"] = string.format("%.3f", total / 1000) .. " ms"
+	dumpt(resultTable)
+end
+function Details:ResetProfilerResult()
+
 end
 
 ---destroy a table and remove it from the object, if the key isn't passed, the object itself is destroyed
@@ -1705,6 +1878,10 @@ function Details:DestroyActor(actorObject, actorContainer, combatObject, callSta
 
 	Details222.TimeMachine.RemoveActor(actorObject)
 
+	if (not actorObject.Name) then
+		print("error: actorObject.Name is nil", actorObject.tipo, actorObject.serial, actorObject.nome)
+	end
+
 	local actorName = actorObject:Name()
 	combatObject:RemoveActorFromSpellCastTable(actorName)
 
@@ -1717,3 +1894,7 @@ function Details:DestroyActor(actorObject, actorContainer, combatObject, callSta
 	actorObject.__destroyed = true
 	actorObject.__destroyedBy = debugstack(callStackDepth or 2, 1, 0)
 end
+
+C_Timer.After(5, function()
+--TutorialPointerFrame_1:HookScript("OnShow", function(self) self:Hide() end) --remove on v11 launch
+end)

@@ -5,6 +5,8 @@ if (not detailsFramework or not DetailsFrameworkCanLoad) then
 	return
 end
 
+if detailsFramework.IsMidnightWow() then return end
+
 local _
 --lua locals
 local rawset = rawset --lua local
@@ -14,7 +16,13 @@ local unpack = table.unpack or unpack --lua local
 local type = type --lua local
 local floor = math.floor --lua local
 local loadstring = loadstring --lua local
-local CreateFrame = CreateFrame
+local G_CreateFrame = _G.CreateFrame
+local CreateFrame = function (frameType , name, parent, template, id)
+	local frame = G_CreateFrame(frameType , name, parent, template, id)
+	detailsFramework:Mixin(frame, detailsFramework.FrameFunctions)
+	frame:SetClipsChildren(false)
+	return frame
+end
 
 local UnitHealth = UnitHealth
 local UnitHealthMax = UnitHealthMax
@@ -33,10 +41,12 @@ local UnitIsTapDenied = UnitIsTapDenied
 local max = math.max
 local min = math.min
 local abs = math.abs
+local GetSpellInfo = GetSpellInfo or function(spellID) if not spellID then return nil end local si = C_Spell.GetSpellInfo(spellID) if si then return si.name, nil, si.iconID, si.castTime, si.minRange, si.maxRange, si.spellID, si.originalIconID end end
 
 local IS_WOW_PROJECT_MAINLINE = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local IS_WOW_PROJECT_NOT_MAINLINE = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
 local IS_WOW_PROJECT_CLASSIC_ERA = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
+local IS_WOW_PROJECT_AT_LEAST_CLASSIC_MOP = IS_WOW_PROJECT_MAINLINE or (ClassicExpansionAtLeast and LE_EXPANSION_MISTS_OF_PANDARIA and ClassicExpansionAtLeast(LE_EXPANSION_MISTS_OF_PANDARIA))
 
 local CastInfo = detailsFramework.CastInfo
 
@@ -164,13 +174,13 @@ local cleanfunction = function() end
 		{"UNIT_MAXHEALTH", true},
 		{(IS_WOW_PROJECT_NOT_MAINLINE) and "UNIT_HEALTH_FREQUENT", true}, -- this one is classic-only...
 		{"UNIT_HEAL_PREDICTION", true},
-		{(IS_WOW_PROJECT_MAINLINE) and "UNIT_ABSORB_AMOUNT_CHANGED", true},
-		{(IS_WOW_PROJECT_MAINLINE) and "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", true},
+		{(IS_WOW_PROJECT_AT_LEAST_CLASSIC_MOP) and "UNIT_ABSORB_AMOUNT_CHANGED", true},
+		{(IS_WOW_PROJECT_AT_LEAST_CLASSIC_MOP) and "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", true},
 	}
 
 	--setup the castbar to be used by another unit
 	healthBarMetaFunctions.SetUnit = function(self, unit, displayedUnit)
-		if (self.unit ~= unit or self.displayedUnit ~= displayedUnit or unit == nil) then
+		if (self.unit ~= unit or self.displayedUnit ~= displayedUnit or unit == nil) then --1x Details/Libs/DF/unitframe.lua:180: script ran too long
 			self.unit = unit
 			self.displayedUnit = displayedUnit or unit
 
@@ -320,9 +330,9 @@ local cleanfunction = function() end
 
 		if (self.Settings.ShowHealingPrediction) then
 			--incoming heal on the unit from all sources
-			local unitHealIncoming = self.displayedUnit and UnitGetIncomingHeals(self.displayedUnit) or 0
+			local unitHealIncoming = UnitGetIncomingHeals and self.displayedUnit and UnitGetIncomingHeals(self.displayedUnit) or 0
 			--heal absorbs
-			local unitHealAbsorb = IS_WOW_PROJECT_MAINLINE and self.displayedUnit and UnitGetTotalHealAbsorbs(self.displayedUnit) or 0
+			local unitHealAbsorb = UnitGetTotalHealAbsorbs and self.displayedUnit and UnitGetTotalHealAbsorbs(self.displayedUnit) or 0
 
 			if (unitHealIncoming > 0) then
 				--calculate what is the percent of health incoming based on the max health the player has
@@ -346,7 +356,7 @@ local cleanfunction = function() end
 			end
 		end
 
-		if (self.Settings.ShowShields and IS_WOW_PROJECT_MAINLINE) then
+		if (self.Settings.ShowShields and UnitGetTotalAbsorbs) then
 			--damage absorbs
 			local unitDamageAbsorb = self.displayedUnit and UnitGetTotalAbsorbs (self.displayedUnit) or 0
 
@@ -931,7 +941,7 @@ detailsFramework.CastFrameFunctions = {
 		FadeOutTime = 0.5, --amount of time in seconds to go from 100% to zero alpha when the cast finishes
 		CanLazyTick = true, --if true, it'll execute the lazy tick function, it ticks in a much slower pace comparece with the regular tick
 		LazyUpdateCooldown = 0.2, --amount of time to wait for the next lazy update, this updates non critical things like the cast timer
-
+		DontUpdateAlpha = false,
 		ShowEmpoweredDuration = true, --full hold time for empowered spells
 
 		FillOnInterrupt = true,
@@ -1308,11 +1318,6 @@ detailsFramework.CastFrameFunctions = {
 			self:SetValue(self.value)
 		end
 
-		--update spark position
-		local sparkPosition = self.value / self.maxValue * self:GetWidth()
-		self.Spark:SetPoint("center", self, "left", sparkPosition + self.Settings.SparkOffset, 0)
-
-
 		--in order to allow the lazy tick run, it must return true, it tell that the cast didn't finished
 		return true
 	end,
@@ -1326,10 +1331,6 @@ detailsFramework.CastFrameFunctions = {
 		else
 			self:SetValue(self.value)
 		end
-
-		--update spark position
-		local sparkPosition = self.value / self.maxValue * self:GetWidth()
-		self.Spark:SetPoint("center", self, "left", sparkPosition + self.Settings.SparkOffset, 0)
 
 		self:CreateOrUpdateEmpoweredPips()
 
@@ -1457,8 +1458,22 @@ detailsFramework.CastFrameFunctions = {
 		end
 	end,
 
-	UpdateCastingInfo = function(self, unit)
-		local name, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible, spellID = CastInfo.UnitCastingInfo(unit)
+	UpdateCastingInfo = function(self, unit, ...)
+		local unitID, castID, spellID = ...
+		local name, text, texture, startTime, endTime, isTradeSkill, uciCastID, notInterruptible, uciSpellID = CastInfo.UnitCastingInfo(unit)
+		spellID = uciSpellID or spellID
+		castID = uciCastID or castID
+		
+		if spellID and (not name or not texture or not text) then
+			local siName, _, siIcon, siCastTime = GetSpellInfo(spellID)
+			texture = texture or siIcon
+			name = name or siName
+			text = text or siName
+			if not startTime then
+				startTime = GetTime()
+				endTime = startTime + siCastTime
+			end
+		end
 
 		--is valid?
 		if (not self:IsValid(unit, name, isTradeSkill, true)) then
@@ -1491,7 +1506,9 @@ detailsFramework.CastFrameFunctions = {
 
 			self:SetMinMaxValues(0, self.maxValue)
 			self:SetValue(self.value)
-			self:SetAlpha(1)
+			if (not self.Settings.DontUpdateAlpha) then
+				self:SetAlpha(1)
+			end
 			self.Icon:SetTexture(texture)
 			self.Icon:Show()
 			self.Text:SetText(text or name)
@@ -1503,7 +1520,9 @@ detailsFramework.CastFrameFunctions = {
 			self.flashTexture:Hide()
 			self:Animation_StopAllAnimations()
 
-			self:SetAlpha(1)
+			if (not self.Settings.DontUpdateAlpha) then
+				self:SetAlpha(1)
+			end
 
 			--set the statusbar color
 			self:UpdateCastColor()
@@ -1519,8 +1538,8 @@ detailsFramework.CastFrameFunctions = {
 		self:UpdateInterruptState()
 	end,
 
-	UNIT_SPELLCAST_START = function(self, unit)
-		self:UpdateCastingInfo(unit)
+	UNIT_SPELLCAST_START = function(self, unit, ...)
+		self:UpdateCastingInfo(unit, ...)
 		self:RunHooksForWidget("OnCastStart", self, self.unit, "UNIT_SPELLCAST_START")
 	end,
 
@@ -1570,7 +1589,20 @@ detailsFramework.CastFrameFunctions = {
 
 	UpdateChannelInfo = function(self, unit, ...)
 		local unitID, castID, spellID = ...
-		local name, text, texture, startTime, endTime, isTradeSkill, notInterruptible, spellID, _, numStages = CastInfo.UnitChannelInfo (unit)
+		local name, text, texture, startTime, endTime, isTradeSkill, notInterruptible, uciSpellID, _, numStages = CastInfo.UnitChannelInfo (unit)
+		spellID = uciSpellID or spellID
+		castID = uciCastID or castID
+		
+		if spellID and (not name or not texture or not text) then
+			local siName, _, siIcon, siCastTime = GetSpellInfo(spellID)
+			texture = texture or siIcon
+			name = name or siName
+			text = text or siName
+			if not startTime then
+				startTime = GetTime()
+				endTime = startTime + siCastTime
+			end
+		end
 
 		--is valid?
 		if (not self:IsValid (unit, name, isTradeSkill, true)) then
@@ -1635,7 +1667,9 @@ detailsFramework.CastFrameFunctions = {
 			self:SetMinMaxValues(0, self.maxValue)
 			self:SetValue(self.value)
 
-			self:SetAlpha(1)
+			if (not self.Settings.DontUpdateAlpha) then
+				self:SetAlpha(1)
+			end
 			self.Icon:SetTexture(texture)
 			self.Icon:Show()
 			self.Text:SetText(text)
@@ -1647,7 +1681,9 @@ detailsFramework.CastFrameFunctions = {
 			self.flashTexture:Hide()
 			self:Animation_StopAllAnimations()
 
-			self:SetAlpha(1)
+			if (not self.Settings.DontUpdateAlpha) then
+				self:SetAlpha(1)
+			end
 
 			--set the statusbar color
 			self:UpdateCastColor()
@@ -1908,6 +1944,7 @@ function detailsFramework:CreateCastBar(parent, name, settingsOverride)
 			--statusbar texture
 			castBar.barTexture = castBar:CreateTexture(nil, "artwork", nil, -6)
 			castBar:SetStatusBarTexture(castBar.barTexture)
+			castBar.Spark:SetPoint("CENTER", castBar.barTexture, "RIGHT")
 
 			--animations fade in and out
 			local fadeOutAnimationHub = detailsFramework:CreateAnimationHub(castBar, detailsFramework.CastFrameFunctions.Animation_FadeOutStarted, detailsFramework.CastFrameFunctions.Animation_FadeOutFinished)
@@ -1936,6 +1973,7 @@ function detailsFramework:CreateCastBar(parent, name, settingsOverride)
 	--mixins
 	detailsFramework:Mixin(castBar, detailsFramework.CastFrameFunctions)
 	detailsFramework:Mixin(castBar, detailsFramework.StatusBarFunctions)
+
 
 	castBar:CreateTextureMask()
 	castBar:AddMaskTexture(castBar.flashTexture)

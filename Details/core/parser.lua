@@ -1,22 +1,44 @@
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+	---@type details
 	local Details = _G.Details
+    local addonName, Details222 = ...
 	local Loc = LibStub("AceLocale-3.0"):GetLocale("Details")
 	local detailsFramework = DetailsFramework
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --local pointers
 
+	Details.challengeModeMapId = nil
+
+	local UnitHealthMax = UnitHealthMax
+	Details.HealthMaxFrame = CreateFrame("Frame")
+
+	if not detailsFramework.IsMidnightWow() then
+		Details.HealthMaxFrame:RegisterEvent("UNIT_MAXHEALTH")
+	end
+
+	Details.HealthCache = {}
+	Details.HealthMaxCache = {}
+	Details.HealthMaxCalls = 0
+
+	Details.HealthMaxFrame:SetScript("OnEvent", function(self, event, unitId)
+		local unitGUID = UnitGUID(unitId)
+		if (unitGUID) then
+			Details.HealthMaxCache[unitGUID] = max(UnitHealthMax(unitId), SMALL_FLOAT)
+			Details.HealthMaxCalls = Details.HealthMaxCalls + 1
+		end
+	end)
+
 	local UnitAffectingCombat = UnitAffectingCombat
 	local UnitHealth = UnitHealth
-	local UnitHealthMax = UnitHealthMax
 	local UnitGUID = UnitGUID
-	local IsInGroup = IsInGroup
+	--local IsInGroup = IsInGroup
 	local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
 	local GetTime = GetTime
 	local tonumber = tonumber
 	local tinsert = table.insert
-	local select = select
+	--local select = select
 	local bitBand = bit.band
 	local floor = math.floor
 	local ipairs = ipairs
@@ -26,16 +48,16 @@
 
 	local _UnitGroupRolesAssigned = detailsFramework.UnitGroupRolesAssigned
 	local _GetSpellInfo = Details.getspellinfo
-	local isWOTLK = detailsFramework.IsWotLKWow()
+    local GetSpellInfo = Details222.GetSpellInfo
 	local isERA = detailsFramework.IsClassicWow()
+    local isCLASSIC = detailsFramework.IsCataWow() or detailsFramework.IsPandaWow() or isERA or detailsFramework.IsWotLKWow() or detailsFramework.IsTBCWow()
 	local _tempo = time()
-	local _, Details222 = ...
 	_ = nil
 
-	local shield_cache = Details.ShieldCache --details local
-	local parser = Details.parser --details local
+	local shield_cache = Details.ShieldCache
+	local parser = Details.parser
 
-	local cc_spell_list = detailsFramework.CrowdControlSpells
+	local crowdControlSpells = Details.CrowdControlSpellIdsCache or {} --built during startup, can be edited to add or remove spells
 	local spellContainerClass = Details.container_habilidades --details local
 
 	--localize the cooldown table from the framework
@@ -57,22 +79,26 @@
 	local _spell_energy_func = Details.habilidade_e_energy.Add
 	local _spell_utility_func = Details.habilidade_misc.Add
 
-	--current combat and overall pointers
-		local _current_combat = Details.tabela_vigente or {} --placeholder table
+	-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+	--cache
+	--cache current combat
+	local _current_combat = Details.tabela_vigente or {} --placeholder table
 
-	--total container pointers
-		local _current_total = _current_combat.totals
-		local _current_gtotal = _current_combat.totals_grupo
+	--cache total table
+	local _current_total = _current_combat.totals
+	local _current_gtotal = _current_combat.totals_grupo
 
-	--actors container pointers
-		local _current_damage_container = _current_combat [1]
-		local _current_heal_container = _current_combat [2]
-		local _current_energy_container = _current_combat [3]
-		local _current_misc_container = _current_combat [4]
+	--cache actors containers
+	local _current_damage_container = _current_combat [1]
+	local _current_heal_container = _current_combat [2]
+	local _current_energy_container = _current_combat [3]
+	local _current_misc_container = _current_combat [4]
 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
---cache
-		local names_cache = {}
+	--pet container cache
+	---@type petcontainer
+	local petContainer = Details222.PetContainer
+
+	local names_cache = {}
 	--damage
 		local damage_cache = setmetatable({}, Details.weaktable)
 		local damage_cache_pets = setmetatable({}, Details.weaktable)
@@ -80,7 +106,6 @@
 	--heaing
 		local healing_cache = setmetatable({}, Details.weaktable)
 		local banned_healing_spells = {
-			[326514] = true, --remove on 10.0 - Forgeborne Reveries - necrolords ability
 		}
 	--energy
 		local energy_cache = setmetatable({}, Details.weaktable)
@@ -107,7 +132,11 @@
 	--shield spellid cache
 		local shield_spellid_cache = {}
 	--pets
-		local container_pets = {} --just initialize table (placeholder)
+		local petCache = petContainer.Pets
+
+	--interrupt overlap cache
+		local interruptOverlapCache = {}
+
 	--ignore deaths
 		local ignore_death_cache = {}
 	--cache
@@ -190,12 +219,12 @@
 		---@field key7 number
 
 		local augmentation_aura_list = {
-			[395152] = true,
-			[413984] = true,
-			[410089] = true,
-			[409560] = true,
-			[360827] = true,
-			[410263] = true,
+			[395152] = true, --ebon might (evoker 10.1.5) 395296 = the evoker buff on it self
+			[413984] = true, --Shifting Sands
+			[410089] = true, --prescience (evoker 10.1.5)
+			[409560] = true, --Temporal Wound
+			[360827] = true, --Blistering Scales
+			[410263] = true, --Inferno's Blessing
 		}
 
 		--list of buffs given by another player but should also be credited to the which received it
@@ -205,14 +234,19 @@
 			[410089] = true, --prescience (evoker 10.1.5)
 			[10060] = true, --power infusion
 			[194384] = true, --atonement uptime
+			[378134] = true, --rallied to victory
+			[436159] = true, --ring boon of binding buff
 		}
-
 		Details.CreditBuffToTarget = buffs_on_target
+
+		---@type table<spellid, boolean>
+		local ignoredWorldAuras = Details222.IgnoredWorldAuras
 
 		--store all information about augmentation evokers ~roskash
 		local augmentation_cache = {
 			ebon_might = {},
 			prescience = {},
+			prescience_stacks = {},
 			---@type table<serial, evokereonsbreathinfo[]>
 			breath_targets = {},
 			flyaway = {},
@@ -222,14 +256,25 @@
 			infernobless = {},
 		}
 
+		---@class bombardmentinfo : table
+		---@field only_one_scalecomander boolean
+		---@field spellId number
+		---@field evoker_name string
+		---@field serial string
+
+		---@type bombardmentinfo
+		local bombardment_stuff = {
+			only_one_scalecomander = true,
+			spellId = 434481,
+			evoker_name = "",
+			serial = "",
+		}
+
+		Details.augmentation_cache = augmentation_cache
+
 		Details222.SpecHelpers[1473].augmentation_cache = augmentation_cache
 
 		local empower_cache = {}
-
-		local scale_factors = {
-			[256] = 3.80,--disc priest
-			[254] = 9.73, --hunter mm
-		}
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --constants
@@ -262,76 +307,56 @@
 	--spellIds override
 	local override_spellId = {}
 
-	if (isWOTLK) then
+	if (detailsFramework.IsCataWow() or detailsFramework.IsPandaWow()) then
 		override_spellId = {
 			--Scourge Strike
-			[55090] = 55271,
-			[55265] = 55271,
-			[55270] = 55271,
-			[70890] = 55271, --shadow
+			[55265] = 55090,
+			[55270] = 55090,
+			[70890] = 55090, --shadow
 
 			--Frost Strike
-			[49143] = 55268,
-			[51416] = 55268,
-			[51417] = 55268,
-			[51418] = 55268,
-			[51419] = 55268,
-			[66962] = 55268, --offhand
+			[51416] = 49143,
+			[51417] = 49143,
+			[51418] = 49143,
+			[51419] = 49143,
+			[66962] = 49143, --offhand
+			[66196] = 49143, --frost dk frost strike offhand
 
 			--Obliterate
-			[49020] = 51425,
-			[51423] = 51425,
-			[51424] = 51425,
-			[66974] = 51425, --offhand
+			[51423] = 49020,
+			[51424] = 49020,
+			[66974] = 49020, --offhand
+			[66198] = 49020, --frost dk obliterate offhand
 
 			--Death Strike
-			[49998] = 49924,
-			[49999] = 49924,
-			[45463] = 49924,
-			[49923] = 49924,
-			[66953] = 49924, --offhand
+			[49999] = 49998,
+			[45463] = 49998,
+			[49923] = 49998,
+			[66953] = 49998, --offhand
 
 			--Blood Strike
-			[45902] = 49930,
-			[49926] = 49930,
-			[49927] = 49930,
-			[49928] = 49930,
-			[49929] = 49930,
-			[66979] = 49930, --offhand
+			[49926] = 45902,
+			[49927] = 45902,
+			[49928] = 45902,
+			[49929] = 45902,
+			[66979] = 45902, --offhand
 
 			--Rune Strike
 			[6621] = 56815, --offhand
 
 			--Plague Strike
-			[45462] = 49921,
-			[49917] = 49921,
-			[49918] = 49921,
-			[49919] = 49921,
-			[49920] = 49921,
-			[66992] = 49921, --offhand
+			[49917] = 45462,
+			[49918] = 45462,
+			[49919] = 45462,
+			[49920] = 45462,
+			[66992] = 45462, --offhand
 
 			--Seal of Command
 			[20424] = 69403, --53739 and 53733
-
-			--odyn's fury warrior
-			[385062] = 385060,
-			[385061] = 385060,
-
-			--crushing blow
-			[335098] = 335097,
-			[335100] = 335097,
-
-			--charge warrior
-			[105771] = 126664,
-
-			--elemental stances
-			[377458] = 377459,
-			[377461] = 377459,
-			[382133] = 377459,
 		}
 
 	else --retail
-		override_spellId = {
+		override_spellId = { --~merge
 			[184707] = 218617, --warrior rampage
 			[184709] = 218617, --warrior rampage
 			[201364] = 218617, --warrior rampage
@@ -344,12 +369,25 @@
 			[217956] = 5308, --warrior execute
 			[217957] = 5308, --warrior execute
 			[224253] = 5308, --warrior execute
+			[260798] = 5308, --warrior execute
 			[199850] = 199658, --warrior whirlwind
 			[190411] = 199658, --warrior whirlwind
 			[44949] = 199658, --warrior whirlwind
 			[199667] = 199658, --warrior whirlwind
 			[199852] = 199658, --warrior whirlwind
 			[199851] = 199658, --warrior whirlwind
+			[411547] = 199658, --arms warrior whirlwind
+			[385228] = 199658, --arms warrior whirlwind
+			[105771] = 126664, --warrior charge
+			[385060] = 385062, --fury warrior odyn fury
+			[385061] = 385062, --fury warrior odyn fury offhand
+			[335097] = 335100, --fury warrior crushing blow
+			[335098] = 335100, --fury warrior crushing blow offhand
+			[458459] = 845, --arms warrior cleave
+			[440884] = 440886, --arms warrior demolish
+			[440888] = 440886, --arms warrior demolish
+			[95738] = 50622, --fury warrior bladestorm offhand
+			[460670] = 435791, --fury warrior lightning strike
 
 			[222031] = 199547, --deamonhunter ChaosStrike
 			[200685] = 199552, --deamonhunter Blade Dance
@@ -371,6 +409,8 @@
 			[280720] = 282449, --rogue Secret Technique
 			[280719] = 282449, --rogue Secret Technique
 			[27576] = 5374, --rogue mutilate
+			[385897] = 8676, --rogue Ambush
+			[430023] = 8676, --rogue Ambush
 
 			[233496] = 233490, --warlock Unstable Affliction
 			[233497] = 233490, --warlock Unstable Affliction
@@ -392,6 +432,19 @@
 			[228361] = 228360, --shadow priest void erruption
 
 			[401422] = 401428, --vessel of searing shadow (trinket)
+
+			[417134] = 414532, --rage of Fyr'alath
+			[413584] = 414532,
+			[424094] = 414532,
+
+			[228649] = 100784, --monk blackout kick
+
+			[436304] = 439843, --frost dk reaper's mark
+			[439594] = 439843, --frost dk reaper's mark
+			[66198] = 222024, --frost dk obliterate offhand
+			[66196] = 222026, --frost dk frost strike offhand
+			[383312] = 383313, --frost dk abom limb
+			[441424] = 441426, --frost dk exterminate
 		}
 
 		--all totem
@@ -447,9 +500,6 @@
 	--tbc spell caches
 	local TBC_PrayerOfMendingCache = {}
 	local TBC_EarthShieldCache = {}
-	local TBC_JudgementOfLightCache = {
-		_damageCache = {}
-	}
 
 	--expose the override spells table to external scripts
 	Details.OverridedSpellIds = override_spellId
@@ -467,6 +517,12 @@
 
 		--Volatile Spark on razga'reth
 		[194999] = true,
+
+		--Ozumat - Throne of Tides
+		[44566] = true,
+
+		--Smoldering Seedling trinket
+		[212590] = true,
 	}
 
 	local ignored_npcids = {}
@@ -504,6 +560,7 @@
 		[392166] = true, --Azure Stone of Might
 		[379020] = true, --Wand of Negation
 		[372824] = true, --Burning Chains
+        [469704] = true, --Tempered in Battle (Acts like Spirit Link, paladin hero talent)
 	}
 
 	--damage spells to ignore
@@ -511,6 +568,11 @@
 		--the damage that the warlock apply to its pet through soullink is ignored
 		--it is not useful for damage done or friendly fire
 		[SPELLID_WARLOCK_SOULLINK] = true,
+		[74040] = true, --grim batol drake
+		[457658] = true, --grim batol drake
+		[467230] = true, --11.1 raid blaze of glory
+		[465741] = true, --11.1 raid garbage dump
+        [1246948] = true, --11.2 raid Shooting Star
 	}
 
 	--expose the ignore spells table to external scripts
@@ -524,15 +586,13 @@
 		local _current_encounter_id
 		local _in_resting_zone = false
 		local _global_combat_counter = 0
+		local _parser_options = {}
 
 		---amount of events allowed to store in the table which records the latest events that happened to a player before his death, this value can also be retrieved with Details.deadlog_events
 		local _amount_of_last_events = 16
 
 		--map type
 		local _is_in_instance = false
-
-		--overheal for shields
-		local _use_shield_overheal = false
 
 	--hooks
 		local _hook_cooldowns = false
@@ -560,34 +620,17 @@
 
 		local AUTO_REGEN_PRECISION = 2 --todo: replace the amount of wasted resource by the amount of time the player "sitted" at max power
 
-		--Neltharus Weapons in Neltharus dungeon --Remove on 11.0
-		--these detect the weapon actor by the damage spellId
-		Details.NeltharusWeaponSpellIds = {
-			[384601] = true, --Anti Magic Bomb
-			[392171] = true, --Rose of the Vale
-			[392166] = true, --Azure Stone of Might
-			[379020] = true, --Wand of Negation
-			[372824] = true, --Burning Chains
-		}
-
-		Details.NeltharusWeaponActorName = "Neltharus Weapons"
-		Details.NeltharusWeaponActorSpellId = 377176 --for the icon: Blazing Aegis
-
-		--sanguine affix for m+
-		Details.SanguineHealActorName = GetSpellInfo(SPELLID_SANGUINE_HEAL)
-
 		--cache a spellName and the value is the spellId
 		--the container actor will use this name to create a fake player actor where its name is the spellName and the specIcon is the spellIcon
 		Details.SpecialSpellActorsName = {}
 
-		--add sanguine affix
-		if (not isWOTLK) then
+        --sanguine affix for m+
+		Details.SanguineHealActorName = GetSpellInfo(SPELLID_SANGUINE_HEAL)
+
+        if (not isCLASSIC) then
 			if (Details.SanguineHealActorName) then
 				Details.SpecialSpellActorsName[Details.SanguineHealActorName] = SPELLID_SANGUINE_HEAL
 			end
-
-			--add Neltharus weapons
-			Details.SpecialSpellActorsName[Details.NeltharusWeaponActorName] = Details.NeltharusWeaponActorSpellId
 		end
 
 		--Damage spells that trigger outside of combat, which we don't want to have start a combat.
@@ -600,14 +643,18 @@
 		--146739 is corruption that doesn't expire
 
 		local spells_cant_start_combat = {
-			[387846] = true,
-			[352561] = true,
-			[111400] = true,
-			[371070] = true,
-			[368637] = true,
-			[401394] = true,
-			[146739] = true,
+			[368637] = true, --The Third Rune
+			[371070] = true, --Rotting from Within
+			[146739] = true, --Corruption
+			[387846] = true, --Fel Armor
+			[352561] = true, --Undulating Maneuvers
+			[401394] = true, --Unstable Flames
+			[111400] = true, --Burning Rush
+			[12654] = true, --Ignite
+			[419800] = true, --Intensifying Flame
+			[448744] = true, --Authority of Radiant Power
 		}
+
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --internal functions
 
@@ -651,10 +698,12 @@
 		--this block won't execute if the storage isn't loaded
 		--self is a timer reference from C_Timer
 
+		local diffNumberToName = Details222.storage.DiffIdToName
+
 		local encounterID = self.Boss
 		local diff = self.Diff
 
-		if (diff == 15 or diff == 16) then
+		if (diff == 15 or diff == 16) then --might give errors
 			local value, rank, combatTime = 0, 0, 0
 
 			if (encounterID == lastRecordFound.id and diff == lastRecordFound.diff) then
@@ -665,12 +714,14 @@
 
 				local role = _UnitGroupRolesAssigned("player")
 				local isDamage = (role == "DAMAGER") or (role == "TANK") --or true
-				local bestRank, encounterTable = Details.storage:GetBestFromPlayer (diff, encounterID, isDamage and "damage" or "healing", Details.playername, true)
+				---@type details_storage_unitresult, details_encounterkillinfo
+				local bestRank, encounterTable = Details222.storage.GetBestFromPlayer(diffNumberToName[diff], encounterID, isDamage and "DAMAGER" or "HEALER", Details.playername, true)
 
 				if (bestRank) then
-					local playerTable, onEncounter, rankPosition = Details.storage:GetPlayerGuildRank (diff, encounterID, isDamage and "damage" or "healing", Details.playername, true)
+					---@type number
+					local rankPosition = Details222.storage.GetUnitGuildRank(diffNumberToName[diff], encounterID, isDamage and "DAMAGER" or "HEALER", Details.playername, true)
 
-					value = bestRank[1] or 0
+					value = bestRank.total or 0
 					rank = rankPosition or 0
 					combatTime = encounterTable.elapsed
 
@@ -770,7 +821,6 @@
 					sourceFlags = reflection.who_flags
 
 					--data of the aura that caused the reflection
-					--print("2", spellid, GetSpellInfo(spellid))
 					isreflected = spellId --which spell was reflected
 					spellId = reflection.spellid --which spell made the reflection
 					spellName = reflection.spellname
@@ -792,12 +842,19 @@
 				spellId = override_spellId[spellId] or spellId
 			end
 
+			if (spellId == bombardment_stuff.spellId) then
+				if (bombardment_stuff.only_one_scalecomander) then
+					sourceSerial, sourceName = bombardment_stuff.serial, bombardment_stuff.evoker_name
+				end
+			end
+
 		--> npcId check for ignored npcs
 		--> get the npcId from the cache, if it's not there then get it from the serial and add it to the cache
 			local npcId = npcid_cache[targetSerial] --target npc
 			if (not npcId) then
 				--this string manipulation is running on every event
-				npcId = tonumber(select(6, strsplit("-", targetSerial)) or 0)
+				--npcId = tonumber(select(6, strsplit("-", targetSerial)) or 0)
+				npcId = tonumber(targetSerial:match("^[^%-]*%-[^%-]*%-[^%-]*%-[^%-]*%-[^%-]*%-([^%-]*)"))
 				npcid_cache[targetSerial] = npcId
 			end
 
@@ -842,8 +899,8 @@
 			if (spellId == 124255) then
 				return parser:MonkStagger_damage(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, spellId, spellName, spellType, amount, overkill, school, resisted, blocked, absorbed, critical, glacing, crushing, isoffhand)
 
-			--spirit link toten
-			elseif (spellId == 98021) then
+			--spirit link totem or tempered in battle
+			elseif (spellId == 98021 or spellId == 469704) then
 				return parser:SLT_damage(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, spellId, spellName, spellType, amount, overkill, school, resisted, blocked, absorbed, critical, glacing, crushing, isoffhand)
 
 			--rogue's secret technique | when akari's soul gives damage | dragonflight | --REMOVE ON 11.0 - maybe
@@ -868,30 +925,21 @@
 					sourceSerial, sourceName, sourceFlags = unpack(blessingSource)
 				end
 
-			elseif (Details.NeltharusWeaponSpellIds[spellId]) then
-				sourceName = Details.NeltharusWeaponActorName
-				sourceFlags = 0x514
-				sourceSerial = "Creature-0-3134-2289-28065-" .. spellId .. "-000164C698"
-			end
-		end
-
-		--wrath of the lich king
-		if (isWOTLK) then
-			--is the target an enemy with judgement of light?
-			if (TBC_JudgementOfLightCache[targetName] and false) then
-				--store the player name which just landed a damage
-				TBC_JudgementOfLightCache._damageCache[sourceName] = {time, targetName}
+			--elseif (Details.NeltharusWeaponSpellIds[spellId]) then
+			--	sourceName = Details.NeltharusWeaponActorName
+			--	sourceFlags = 0x514
+			--	sourceSerial = "Creature-0-3134-2289-28065-" .. spellId .. "-000164C698"
 			end
 		end
 
 	------------------------------------------------------------------------------------------------
 		--check if need start an combat
-		if (not _in_combat) then --~startcombat ~combatstart
+		if (not Details.in_combat) then --~startcombat ~combatstart
 			if (	token ~= "SPELL_PERIODIC_DAMAGE" and
 				(
-					(sourceFlags and bitBand(sourceFlags, AFFILIATION_GROUP) ~= 0 and UnitAffectingCombat(Details:Ambiguate(sourceName))) --error here, need to remove the realm from sourceName
+					(sourceFlags and bitBand(sourceFlags, AFFILIATION_GROUP) ~= 0 and UnitAffectingCombat(sourceName)) --error here, need to remove the realm from sourceName
 					or
-					(targetFlags and bitBand(targetFlags, AFFILIATION_GROUP) ~= 0 and UnitAffectingCombat(Details:Ambiguate(targetName)))
+					(targetFlags and bitBand(targetFlags, AFFILIATION_GROUP) ~= 0 and UnitAffectingCombat(targetName))
 					or
 					(not Details.in_group and sourceFlags and bitBand(sourceFlags, AFFILIATION_GROUP) ~= 0)
 				)
@@ -909,10 +957,14 @@
 
 					Details.WhoAggroTimer = C_Timer.NewTimer(0.1, whoAggro)
 					Details.WhoAggroTimer.HitBy = "|cFFFFFF00First Hit|r: " .. (link or "") .. " from " .. (sourceName or "Unknown")
-					print("debug:", Details.WhoAggroTimer.HitBy)
+
+					if (Details.announce_firsthit.enabled) then
+						Details:Msg("", Details.WhoAggroTimer.HitBy)
+					end
 				end
 
-				Details:EntrarEmCombate(sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags)
+				--local spellInfo = C_Spell.GetSpellInfo(spellId)
+				Details222.StartCombat(sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags)
 			else
 				--entrar em combate se for dot e for do jogador e o ultimo combate ter sido a mais de 10 segundos atr�s
 				if (token == "SPELL_PERIODIC_DAMAGE" and sourceName == Details.playername) then
@@ -920,9 +972,9 @@
 						return
 					end
 
-					--faz o calculo dos 10 segundos
+					--can't start a combat with a dot with the latest combat finished less than 10 seconds ago
 					if (Details.last_combat_time + 10 < _tempo) then
-						Details:EntrarEmCombate(sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags)
+						Details222.StartCombat(sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags)
 					end
 				end
 			end
@@ -949,6 +1001,14 @@
 				if (not damage_cache[ownerActor.serial] and ownerActor.serial ~= "") then
 					damage_cache[ownerActor.serial] = ownerActor
 				end
+
+				if (ownerActor) then
+					if (Details222.Debug.DebugPets) then
+						Details:Msg("Parser|DebugPets|ActorCreated|PetName:", sourceActor:Name(), "sourceName:", sourceName, "ownerName:", ownerActor:Name())
+					elseif (Details222.Debug.DebugPlayerPets and sourceName == Details.playername) then
+						Details:Msg("Parser|DebugPets|ActorCreated|PetName:", sourceActor:Name(), "sourceName:", sourceName, "ownerName:", ownerActor:Name())
+					end
+				end
 			else
 				--there's no owner actor
 				if (sourceFlags) then
@@ -962,6 +1022,19 @@
 							sourceActor.spellicon = spellIcon
 						end
 					end
+				end
+			end
+
+			--if a owner actor isn't found and debug pets is enabled and this is a pet or guardian
+			if (not ownerActor and (Details222.Debug.DebugPets or Details222.Debug.DebugPlayerPets) and bitBand(sourceFlags, 0x00003000) ~= 0) then --OBJECT_TYPE_PETGUARDIAN
+				--note: the actor wasn't found in the cache and got created
+				Details:Msg("DebugPets|Parser|Owner Actor Not Found|", sourceName, sourceSerial, sourceFlags, bitBand(sourceFlags, 0x00003000) ~= 0)
+
+				---@type petdata?
+				local petData = petContainer.GetPetInfo(sourceSerial)
+				if (sourceName == "Fire Spirit") then
+					Details:Msg("DebugPets|Parser|PetData|Exists?", petData, sourceName, "Dumping petData on dumpt.")
+					dumpt(petData)
 				end
 			end
 
@@ -1025,7 +1098,7 @@
 
 	------------------------------------------------------------------------------------------------
 	--group checks and avoidance
-
+		local healthChange = amount
 		if (absorbed) then
 			amount = absorbed + (amount or 0)
 		end
@@ -1039,31 +1112,29 @@
 			end
 		end
 
-		if (sourceActor.grupo and not sourceActor.arena_enemy and not sourceActor.enemy and not targetActor.arena_enemy) then --source = friendly player and not an enemy player
-			--dano to adversario estava caindo aqui por nao estar checando .enemy
+		if ((sourceActor.grupo or (sourceActor.owner and sourceActor.owner.grupo)) and not sourceActor.arena_enemy and not sourceActor.enemy and not targetActor.arena_enemy) then --source = friendly player/pet and not an enemy player 
+			--dano to adversario estava caindo aqui por nao estar checando .enemy 
 			_current_gtotal[1] = _current_gtotal[1] + amount
-
 		elseif (targetActor.grupo) then --source = arena enemy or friendly player
 			if (targetActor.arena_enemy) then
 				_current_gtotal[1] = _current_gtotal[1] + amount
 			end
 
+			if (tanks_members_cache[targetSerial] and targetActor.classe == "MONK") then
+				if (absorbed) then
+					--the absorbed amount was staggered and should not be count as damage taken now
+					--this absorbed will hit the player with the stagger debuff
+					amount = (amount or 0) - absorbed
+				end
+			end
+
 			--record avoidance only for tank actors
-			if (tanks_members_cache[targetSerial]) then
-				--monk's stagger
-				if (targetActor.classe == "MONK") then
+			if (_parser_options.tank_avoidance and tanks_members_cache[targetSerial]) then
+				--advanced damage taken
+				--if advanced  damage taken is enabled, the damage taken to tanks acts like the monk stuff above
+				if (Details.damage_taken_everything and targetActor.classe ~= "MONK") then
 					if (absorbed) then
-						--the absorbed amount was staggered and should not be count as damage taken now
-						--this absorbed will hit the player with the stagger debuff
 						amount = (amount or 0) - absorbed
-					end
-				else
-					--advanced damage taken
-					--if advanced  damage taken is enabled, the damage taken to tanks acts like the monk stuff above
-					if (Details.damage_taken_everything) then
-						if (absorbed) then
-							amount = (amount or 0) - absorbed
-						end
 					end
 				end
 
@@ -1075,7 +1146,6 @@
 				end
 
 				local overall = avoidance.overall
-
 				local mob = avoidance[sourceName]
 				if (not mob) then --if isn't in the table, build on the fly
 					mob =  Details:CreateActorAvoidanceTable(true)
@@ -1118,53 +1188,63 @@
 				end
 			end
 
-			--record death log
-			local t = last_events_cache[targetName]
+			if (Details.HealthCache[targetSerial]) then --if the check passes, it is guaranteed to be a player character
+				--record death log
+				---local ttt = debugprofilestop()
 
-			if (not t) then
-				t = _current_combat:CreateLastEventsTable(targetName)
-			end
-
-			local i = t.n
-
-			local thisEvent = t [i]
-			thisEvent[1] = true --true if this is a damage || false for healing
-			thisEvent[2] = spellId --spellid || false if this is a battle ress line
-			thisEvent[3] = amount --amount of damage or healing
-			thisEvent[4] = time --parser time
-
-			--current unit heal
-			if (targetActor.arena_enemy) then
-				--this is an arena enemy, get the heal with the unit Id
-				local unitId = Details.arena_enemies[targetName]
-				if (not unitId) then
-					unitId = Details:GuessArenaEnemyUnitId(targetName)
+				local actorLatestEvents = last_events_cache[targetName]
+				if (not actorLatestEvents) then
+					actorLatestEvents = _current_combat:CreateLastEventsTable(targetName)
 				end
-				if (unitId) then
-					thisEvent[5] = UnitHealth(unitId)
+
+				Details.HealthCache[targetSerial] = Details.HealthCache[targetSerial] - healthChange
+				if (Details.HealthCache[targetSerial] < 0) then
+					Details.HealthCache[targetSerial] = 0
+				end
+
+				local i = actorLatestEvents.n
+
+				local thisEvent = actorLatestEvents[i]
+				thisEvent[1] = true --true if this is a damage || false for healing
+				thisEvent[2] = spellId --spellid || false if this is a battle ress line
+				thisEvent[3] = amount --amount of damage or healing
+				thisEvent[4] = time --parser time
+
+				--current unit healh
+				if (targetActor.arena_enemy) then
+					--this is an arena enemy, get the heal with the unit Id
+					local unitId = Details.arena_enemies[targetName]
+					if (not unitId) then
+						unitId = Details:GuessArenaEnemyUnitId(targetName)
+					end
+
+					if (unitId) then
+						local maxHealth = max(UnitHealthMax(unitId), SMALL_FLOAT)
+						thisEvent[5] = UnitHealth(unitId) / maxHealth
+					else
+						thisEvent[5] = cacheAnything.arenaHealth[targetName] or 100000
+					end
+
+					cacheAnything.arenaHealth[targetName] = thisEvent[5]
 				else
-					thisEvent[5] = cacheAnything.arenaHealth[targetName] or 100000
+					thisEvent[5] =  Details.HealthCache[targetSerial] / Details.HealthMaxCache[targetSerial]
 				end
 
-				cacheAnything.arenaHealth[targetName] = thisEvent[5]
-			else
-				thisEvent[5] = UnitHealth(Details:Ambiguate(targetName))
-			end
+				thisEvent[6] = sourceName --source name
+				thisEvent[7] = absorbed
+				thisEvent[8] = spellType or school
+				thisEvent[9] = false
+				thisEvent[10] = overkill
+				thisEvent[11] = critical
+				thisEvent[12] = crushing
 
-			thisEvent[6] = sourceName --source name
-			thisEvent[7] = absorbed
-			thisEvent[8] = spellType or school
-			thisEvent[9] = false
-			thisEvent[10] = overkill
-			thisEvent[11] = critical
-			thisEvent[12] = crushing
+				i = i + 1
 
-			i = i + 1
-
-			if (i == _amount_of_last_events + 1) then
-				t.n = 1
-			else
-				t.n = i
+				if (i == _amount_of_last_events + 1) then
+					actorLatestEvents.n = 1
+				else
+					actorLatestEvents.n = i
+				end
 			end
 		end
 
@@ -1227,12 +1307,12 @@
 			end
 		end
 
-		--double check for Astral Nova explosion (only inside AA dungeon)
-		if (spellId == 387848 and not is_friendly_fire) then
-			if ((targetActor.grupo or targetOwner and targetOwner.grupo) and (sourceActor.grupo or ownerActor and ownerActor.grupo)) then
-				is_friendly_fire = true
-			end
-		end
+		--double check for Astral Nova explosion (only inside AA dungeon, dragonflight)
+		--if (spellId == 387848 and not is_friendly_fire) then
+		--	if ((targetActor.grupo or targetOwner and targetOwner.grupo) and (sourceActor.grupo or ownerActor and ownerActor.grupo)) then
+		--		is_friendly_fire = true
+		--	end
+		--end
 
 		if (is_friendly_fire) then
 			if (sourceActor.grupo) then --se tiver ele n�o adiciona o evento l� em cima
@@ -1249,7 +1329,7 @@
 				thisEvent[2] = spellId --spellid || false if this is a battle ress line
 				thisEvent[3] = amount --amount of damage or healing
 				thisEvent[4] = time --parser time
-				thisEvent[5] = UnitHealth(Details:Ambiguate(targetName)) --current unit heal
+				thisEvent[5] = UnitHealth(targetName) / max(UnitHealthMax(targetName), SMALL_FLOAT) --current unit heal
 				thisEvent[6] = sourceName --source name
 				thisEvent[7] = absorbed
 				thisEvent[8] = spellType or school
@@ -1298,13 +1378,13 @@
 		--~roskash - augmentation evoker damage buff
 		if (augmentation_cache.ebon_might[sourceSerial] or (ownerActor and augmentation_cache.ebon_might[ownerActor.serial])) then
 			--get the serial number of the player who did the damage, in case of a pet or minion use the owner serial
-			local thisSourceSerial = augmentation_cache.ebon_might[sourceSerial] and sourceSerial or ownerActor.serial
+			local thisSourceSerial = (augmentation_cache.ebon_might[sourceSerial] and sourceSerial) or ownerActor.serial
 
 			---actor buffed with ebonmight -> list of evokers whose buffed
 			---@type table<serial, evokerinfo[]>
-			local currentlyBuffedWithEbonMight = augmentation_cache.ebon_might[thisSourceSerial]
+			local evokersWhoBuffedThisPlayer = augmentation_cache.ebon_might[thisSourceSerial]
 
-			for i, evokerInfo in ipairs(currentlyBuffedWithEbonMight) do
+			for i, evokerInfo in ipairs(evokersWhoBuffedThisPlayer) do
 				---@cast evokerInfo evokerinfo
 				---@type serial, actorname, controlflags
 				local evokerSourceSerial, evokerSourceName, evokerSourceFlags, attributedGained = unpack(evokerInfo)
@@ -1325,22 +1405,29 @@
 						end
 
 						--> calculate tier and ilevel bonuses; this values could be cached at the start of the combat
-							local bHasFourPieces = gearCache[evokerSourceSerial] and gearCache[evokerSourceSerial].tierAmount >= 4
-							local tierPieceMultiplier = bHasFourPieces and 1.08 or 1
+							--local bHasFourPieces = gearCache[evokerSourceSerial] and gearCache[evokerSourceSerial].tierAmount >= 4
+							local tierPieceMultiplier = 1 --bHasFourPieces and 1.08 or 1
 							local evokerItemLevel = gearCache[evokerSourceSerial] and gearCache[evokerSourceSerial].ilevel or 400
 							evokerItemLevel = max(evokerItemLevel, 400)
-							local itemLevelMultiplier = 1 + ((evokerItemLevel - 400) * 0.01)
+							local itemLevelMultiplier = 1 -- + ((evokerItemLevel - 400) * 0.006)
 
 						local predictedAmount = 0
 						if (Details.zone_type == "raid") then --0x410b
 							predictedAmount = amount * (0.06947705 * tierPieceMultiplier * itemLevelMultiplier)
 						else
-							predictedAmount = amount * (0.08416225 * tierPieceMultiplier * itemLevelMultiplier)
+							predictedAmount = amount * (0.07590444 * tierPieceMultiplier * itemLevelMultiplier)
 						end
 
+						--local damageSpellName = GetSpellInfo(spellId)
+						--print("EbonMight Cache:", Details.augmentation_cache, evokerSourceSerial, floor(amount), floor(predictedAmount), floor(predictedAmount/amount*100) .. "%", damageSpellName)
 						evokerActor.total_extra = evokerActor.total_extra + predictedAmount
 						augmentedSpell.total = augmentedSpell.total + predictedAmount
 						augmentedSpell.targets[sourceName] = (augmentedSpell.targets[sourceName] or 0) + predictedAmount
+
+						if (Details.debug) then
+							DetailsParserDebugFrame:BlinkIcon(extraSpellId, 1)
+							DetailsParserDebugFrame.AllTexts[1]:SetText("Evokers Buffed: " .. #evokersWhoBuffedThisPlayer .. "  (" .. floor(predictedAmount / amount * 100) .. "%)")
+						end
 					end
 				end
 			end
@@ -1379,6 +1466,10 @@
 
 						augmentedSpell.total = augmentedSpell.total + predictedAmount
 						augmentedSpell.targets[sourceName] = (augmentedSpell.targets[sourceName] or 0) + predictedAmount
+
+						if (Details.debug) then
+							--DetailsParserDebugFrame:BlinkIcon(extraSpellId, 2)
+						end
 					end
 				end
 			end
@@ -1414,6 +1505,10 @@
 
 						augmentedSpell.total = augmentedSpell.total + damageSplitted
 						augmentedSpell.targets[sourceName] = (augmentedSpell.targets[sourceName] or 0) + damageSplitted
+
+						if (Details.debug) then
+							--DetailsParserDebugFrame:BlinkIcon(extraSpellId, 3)
+						end
 					end
 				end
 			end
@@ -1449,6 +1544,10 @@
 
 						augmentedSpell.total = augmentedSpell.total + fateMirror_plus_Prescience
 						augmentedSpell.targets[sourceName] = (augmentedSpell.targets[sourceName] or 0) + fateMirror_plus_Prescience
+
+						if (Details.debug) then
+							--DetailsParserDebugFrame:BlinkIcon(extraSpellId, 4)
+						end
 					end
 				end
 			end
@@ -1482,6 +1581,10 @@
 
 						augmentedSpell.total = augmentedSpell.total + amount
 						augmentedSpell.targets[sourceName] = (augmentedSpell.targets[sourceName] or 0) + amount
+
+						if (Details.debug) then
+							--DetailsParserDebugFrame:BlinkIcon(extraSpellId, 5)
+						end
 					end
 				end
 			end
@@ -1528,6 +1631,8 @@
 		end
 
 		--actor owner (if any)
+		targetRaidFlags = targetRaidFlags and bitBand(targetRaidFlags, COMBATLOG_OBJECT_RAIDTARGET_MASK)
+
 		if (ownerActor) then --se for dano de um Pet
 			ownerActor.total = ownerActor.total + amount --e adiciona o dano ao pet
 
@@ -1593,7 +1698,7 @@
 			end
 		end
 
-		if (_trinket_data_cache[spellId] and _in_combat) then --~trinket
+		if (_trinket_data_cache[spellId] and Details.in_combat) then --~trinket
 			---@type trinketdata
 			local thisData = _trinket_data_cache[spellId]
 			if (thisData.lastCombatId == _global_combat_counter) then
@@ -1621,8 +1726,11 @@
 			end
 
 			if (_current_combat.trinketProcs) then
+				---@type table <actorname, trinketprocdata>
 				local playerTrinketData = _current_combat.trinketProcs[sourceName] or {}
 				_current_combat.trinketProcs[sourceName] = playerTrinketData
+
+				---@type trinketprocdata
 				local trinketData = playerTrinketData[spellId] or {cooldown = 0, total = 0}
 				playerTrinketData[spellId] = trinketData
 
@@ -1713,14 +1821,14 @@
 		local this_event = t[i]
 
 		if (not this_event) then
-			return print("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+			return Details:Msg("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
 		end
 
 		this_event [1] = true --true if this is a damage || false for healing
 		this_event [2] = spellId --spellid || false if this is a battle ress line
 		this_event [3] = amount --amount of damage or healing
 		this_event [4] = time --parser time
-		this_event [5] = UnitHealth(Details:Ambiguate(sourceName)) --current unit heal
+		this_event [5] = UnitHealth(sourceName) / (max(UnitHealthMax(sourceName), 0.1)) --current unit heal
 		this_event [6] = sourceName --source name
 		this_event [7] = absorbed
 		this_event [8] = school
@@ -1808,14 +1916,14 @@
 		local this_event = t [i]
 
 		if (not this_event) then
-			return print("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+			return Details:Msg("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
 		end
 
 		this_event [1] = true --true if this is a damage || false for healing
 		this_event [2] = spellid --spellid || false if this is a battle ress line
 		this_event [3] = amount --amount of damage or healing
 		this_event [4] = time --parser time
-		this_event [5] = UnitHealth(Details:Ambiguate(who_name)) --current unit heal
+		this_event [5] = UnitHealth(who_name) / UnitHealthMax(who_name) --current unit heal
 		this_event [6] = who_name --source name
 		this_event [7] = absorbed
 		this_event [8] = school
@@ -1928,14 +2036,14 @@
 		local this_event = t [i]
 
 		if (not this_event) then
-			return print("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+			return Details:Msg("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
 		end
 
 		this_event [1] = true --true if this is a damage || false for healing
 		this_event [2] = spellid --spellid || false if this is a battle ress line
 		this_event [3] = amount --amount of damage or healing
 		this_event [4] = time --parser time
-		this_event [5] = UnitHealth(Details:Ambiguate(alvo_name)) --current unit heal
+		this_event [5] = UnitHealth(alvo_name) / UnitHealthMax(alvo_name) --current unit heal
 		this_event [6] = who_name --source name
 		this_event [7] = absorbed
 		this_event [8] = spelltype or school
@@ -2201,15 +2309,19 @@
 -----------------------------------------------------------------------------------------------------------------------------------------
 	--SUMMON 	serach key: ~summon										|
 -----------------------------------------------------------------------------------------------------------------------------------------
-	function parser:summon(token, time, sourceSerial, sourceName, sourceFlags, petSerial, petName, petFlags, petRaidFlags, spellId, spellName)
+	function parser:summon(token, time, sourceSerial, sourceName, sourceFlags, petGuid, petName, petFlags, petRaidFlags, summonSpellId, summonSpellName)
 		if (not sourceName) then
-			sourceName = "[*] " .. spellName
+			sourceName = "[*] " .. summonSpellName
 		end
-		local npcId = tonumber(select(6, strsplit("-", petSerial)) or 0)
+		local npcId = tonumber(select(6, strsplit("-", petGuid)) or 0)
+
+		if (Details222.Debug.DebugPets) then
+
+		end
 
 		--differenciate army and apoc pets for DK
-		if (spellId == 42651) then --army of the dead
-			dk_pets_cache.army[petSerial] = sourceName
+		if (summonSpellId == 42651) then --army of the dead
+			dk_pets_cache.army[petGuid] = sourceName
 		end
 
 		--If fire elemental totem on Wrath, then ignore the summon of the fire elemental totem itself and instead create the Greater Fire Elemental early.
@@ -2222,31 +2334,42 @@
 			12/14 21:14:44.545  SPELL_SUMMON,Creature-0-4391-615-3107-15439-00001A8313,"Fire Elemental Totem",0x2112,0x0,Creature-0-4391-615-3107-15438-00001A8313,"Greater Fire Elemental",0x2112,0x0,32982,"Fire Elemental Totem",0x1
 			]]
 
-		if (isWOTLK) then
-			if (npcId == 15439) then
-				Details.tabela_pets:AddPet(petSerial:gsub("%-15439%-", "%-15438%-"), "Greater Fire Elemental", petFlags, sourceSerial, sourceName, sourceFlags)
 
+		if (isCLASSIC) then
+			if (npcId == 15439) then
+				petContainer.AddPet(petGuid:gsub("%-15439%-", "%-15438%-"), "Greater Fire Elemental", petFlags, sourceSerial, sourceName, sourceFlags, summonSpellId)
 			elseif (npcId == 15438) then
 				return
 			end
+        -- Brann Bronzebeard in delves
+        elseif (npcId == 210759) then
+            return
+        end
+
+		--send the summonSpellId to spellcache in order to identify if the pet is from an item, for instance: a trinket
+		local newPetName = Details222.Pets.GetPetNameFromCustomSpells(petName, summonSpellId, npcId)
+		if (newPetName ~= petName) then
+			--print("Details! debug trinket summon| player:", sourceName, "| old pet name:", petName, "| new pet name:", newPetName, "| spellId:", summonSpellId)
+			petName = newPetName
 		end
 
-		--pet summon another pet
-		local petTable = container_pets[sourceSerial]
+		--if the caster is inside the petCache, it means this is a pet summoning another pet
+		---@type petdata
+		local petTable = petCache[sourceSerial]
+		if (petTable) then
+			sourceName, sourceSerial, sourceFlags = petTable.ownerName, petTable.ownerGuid, petTable.ownerFlags
+		end
+
+		petTable = petCache[petGuid]
 		if (petTable) then
 			sourceName, sourceSerial, sourceFlags = petTable[1], petTable[2], petTable[3]
 		end
 
-		petTable = container_pets[petSerial]
-		if (petTable) then
-			sourceName, sourceSerial, sourceFlags = petTable[1], petTable[2], petTable[3]
-		end
-
-		Details.tabela_pets:AddPet(petSerial, petName, petFlags, sourceSerial, sourceName, sourceFlags)
+		petContainer.AddPet(petGuid, petName, petFlags, sourceSerial, sourceName, sourceFlags, summonSpellId)
 	end
 
 -----------------------------------------------------------------------------------------------------------------------------------------
-	--HEALING 	serach key: ~healing											|
+	--HEALING 	serach key: ~healing	~heal										|
 -----------------------------------------------------------------------------------------------------------------------------------------
 
 	local ignored_shields = {
@@ -2255,6 +2378,7 @@
 		[115069] = true, -- Stance of the Sturdy Ox (Monk)
 		[20711] = true, -- Spirit of Redemption (Priest)
 		[184553]  = true, --Soul Capacitor
+		[357170]  = true, --Time Dilation
 	}
 
 	local ignored_overheal = { --during refresh, some shield does not replace the old value for the new one
@@ -2262,6 +2386,7 @@
 		[86273] = true, -- Illuminated Healing
 		[114908] = true, --Spirit Shell
 		[152118] = true, --Clarity of Will
+        [447134] = true, --Ravenous Scarab
 	}
 
 	function parser:heal_denied(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellIdAbsorb, spellNameAbsorb, spellSchoolAbsorb, serialHealer, nameHealer, flagsHealer, flags2Healer, spellIdHeal, spellNameHeal, typeHeal, amountDenied)
@@ -2335,7 +2460,7 @@
 	end
 
 	function parser:heal_absorb(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, spellSchool, shieldOwnerSerial, shieldOwnerName, shieldOwnerFlags, shieldOwnerFlags2, shieldSpellId, shieldName, shieldType, amount)
-		if (isWOTLK or isERA) then
+		if (isCLASSIC) then
 			if (not amount) then
 				--melee
 				shieldOwnerSerial, shieldOwnerName, shieldOwnerFlags, shieldOwnerFlags2, shieldSpellId, shieldName, shieldType, amount = spellId, spellName, spellSchool, shieldOwnerSerial, shieldOwnerName, shieldOwnerFlags, shieldOwnerFlags2, shieldSpellId
@@ -2353,14 +2478,14 @@
 
 		elseif (shieldSpellId == 110913) then
 			--dark bargain
-			local max_health = UnitHealthMax(Details:Ambiguate(shieldOwnerName))
+			local max_health = UnitHealthMax(shieldOwnerName)
 			if ((amount or 0) > (max_health or 1) * 4) then
 				return
 			end
 		end
 
 		--diminuir o escudo nas tabelas de ShieldCache
-		if (_use_shield_overheal) then
+		if (_parser_options.shield_overheal) then
 			local shieldsOnTarget = shield_cache[targetName]
 			if (shieldsOnTarget) then
 				local shieldsBySpellId = shieldsOnTarget[shieldSpellId]
@@ -2403,6 +2528,19 @@
 			return
 		end
 
+		--> npcId check for ignored npcs
+		--> get the npcId from the cache, if it's not there then get it from the serial and add it to the cache
+		local npcId = npcid_cache[targetSerial] --target npc
+		if (not npcId) then
+			--this string manipulation is running on every event
+			npcId = tonumber(select(6, strsplit("-", targetSerial)) or 0)
+			npcid_cache[targetSerial] = npcId
+		end
+
+		if (ignored_npcids[npcId]) then
+			return
+		end
+
 		if (not sourceName) then
 			--no actor name, use spell name instead
 			sourceName = names_cache[spellName]
@@ -2413,16 +2551,17 @@
 			end
 		end
 
-		if (spellId == 98021) then --spirit link toten
+		if (spellId == 98021 or spellId == 469704) then --spirit link totem or tempered in battle
 			return parser:SLT_healing(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, spellId, spellName, spellType, amount, overHealing, absorbed, critical, bIsShield)
 		end
+
 
 		if (is_using_spellId_override) then
 			spellId = override_spellId[spellId] or spellId
 		end
 
 		--sanguine ichor mythic dungeon affix (heal enemies)
-		if (spellId == SPELLID_SANGUINE_HEAL) then
+		if (spellId == SPELLID_SANGUINE_HEAL) then --not used in 11.1 patch (season 2 tww)
 			sourceName = Details.SanguineHealActorName
 			sourceFlags = 0x518
 			sourceSerial = "Creature-0-3134-2289-28065-" .. SPELLID_SANGUINE_HEAL .. "-000164C698"
@@ -2436,7 +2575,7 @@
 			effectiveHeal = effectiveHeal + amount - overHealing
 		end
 
-		if (isWOTLK) then
+		if (isCLASSIC) then
 			--earth shield
 			if (spellId == SPELLID_SHAMAN_EARTHSHIELD_HEAL) then
 				--get the information of who placed the buff into this actor
@@ -2453,24 +2592,9 @@
 					TBC_PrayerOfMendingCache[sourceName] = nil
 				end
 
-			elseif (spellId == 27163 and false) then --Judgement of Light (paladin) --disabled on 25 September 2022
-				--check if the hit was landed in the same cleu tick
-
-				local hitCache = TBC_JudgementOfLightCache._damageCache[sourceName]
-				if (hitCache) then
-					local timeLanded = hitCache[1]
-					local targetHit = hitCache[2]
-
-					if (timeLanded and timeLanded == time) then
-						local sourceData = TBC_JudgementOfLightCache[targetHit]
-						if (sourceData) then
-							--change the source of the healing
-							sourceSerial, sourceName, sourceFlags = unpack(sourceData)
-							--erase the hit time information
-							TBC_JudgementOfLightCache._damageCache[sourceName] = nil
-						end
-					end
-				end
+			elseif (spellId == 27163) then --Judgement of Light (paladin), reattribute healing to the person getting healed. Stops 'sniping' the JoL to parse
+				--Removed old version 10/27/23 Flamanis
+				sourceSerial, sourceName, sourceFlags = targetSerial, targetName, targetFlags
 			end
 		end
 
@@ -2478,8 +2602,7 @@
 
 	------------------------------------------------------------------------------------------------
 	--get actors
-
-		--healer
+	--healer
 		local sourceActor, ownerActor = healing_cache[sourceSerial], nil
 		if (not sourceActor) then
 			sourceActor, ownerActor, sourceName = _current_heal_container:GetOrCreateActor(sourceSerial, sourceName, sourceFlags, true)
@@ -2515,33 +2638,23 @@
 			return true
 		end
 
-		--check if this is a mythic dungeon run
-		if (false) then
-			if (Details222.MythicPlus.IsMythicPlus()) then
-				if (bitBand(targetFlags, REACTION_FRIENDLY) == 0 and bitBand(sourceFlags, REACTION_FRIENDLY) == 0) then
-					--this is a enemy healing another enemy
-					--create or get an actor which the actor name is the spell name
-					local actorName = GetSpellInfo(spellId)
-					local spellActor = _current_heal_container:GetOrCreateActor(spellId, actorName, 0x514, true)
-					spellActor.grupo = true
-					spellActor.last_event = _tempo
-					spellActor.total = spellActor.total + effectiveHeal
-					spellActor.spellicon = GetSpellTexture(spellId)
-					spellActor.customColor = {0.5, 0.953, 0.082}
-				end
-			end
-		end
-
 	------------------------------------------------------------------------------------------------
 	--group checks
 		if (sourceActor.grupo and not targetActor.arena_enemy) then
 			_current_gtotal[2] = _current_gtotal[2] + effectiveHeal
 		end
 
-		if (targetActor.grupo) then
+		if (targetActor.grupo and Details.HealthCache[targetSerial]) then
+			---local ttt = debugprofilestop()
+
 			local t = last_events_cache[targetName]
 			if (not t) then
 				t = _current_combat:CreateLastEventsTable(targetName)
+			end
+
+			Details.HealthCache[targetSerial] = Details.HealthCache[targetSerial] + max(amount - overHealing, 0)
+			if (Details.HealthCache[targetSerial] > Details.HealthMaxCache[targetSerial]) then
+				Details.HealthCache[targetSerial] = Details.HealthMaxCache[targetSerial]
 			end
 
 			local i = t.n
@@ -2555,7 +2668,8 @@
 				end
 				previousEvent[7] = previousEvent[7] or bIsShield
 				previousEvent[1] = false --true if this is a damage || false for healing
-				previousEvent[5] = UnitHealth(Details:Ambiguate(targetName))
+				previousEvent[5] = Details.HealthCache[targetSerial] / Details.HealthMaxCache[targetSerial]
+				--previousEvent[5] = UnitHealth(targetName) / Details.HealthMaxCache[targetSerial]
 				previousEvent[11] = (previousEvent[11] or 0) + 1 --attempt to perform arithmetic on a boolean value (during battlegrounds - fix 02 Nov 2023)
 			else
 				local thisEvent = t[i]
@@ -2574,12 +2688,13 @@
 						unitId = Details:GuessArenaEnemyUnitId(targetName)
 					end
 					if (unitId) then
-						thisEvent[5] = UnitHealth(unitId)
+						thisEvent[5] = UnitHealth(unitId) / max(UnitHealthMax(unitId), SMALL_FLOAT)
 					else
 						thisEvent[5] = 0
 					end
 				else
-					thisEvent[5] = UnitHealth(Details:Ambiguate(targetName))
+					--thisEvent[5] = UnitHealth(targetName) / Details.HealthMaxCache[targetSerial]
+					thisEvent[5] = Details.HealthCache[targetSerial] / Details.HealthMaxCache[targetSerial]
 				end
 
 				thisEvent[6] = sourceName
@@ -2598,7 +2713,7 @@
 
 	------------------------------------------------------------------------------------------------
 	--~activity time
-		if (not sourceActor.iniciar_hps) then
+	if (not sourceActor.iniciar_hps) then
 			sourceActor:GetOrChangeActivityStatus(true)
 
 			if (ownerActor and not ownerActor.iniciar_hps) then
@@ -2619,8 +2734,7 @@
 
 	------------------------------------------------------------------------------------------------
 	--add amount
-
-		--actor target
+	--actor target
 		if (effectiveHeal > 0) then
 			--combat total
 			_current_total[2] = _current_total[2] + effectiveHeal
@@ -2743,7 +2857,7 @@
 		this_event [2] = spellid --spellid || false if this is a battle ress line
 		this_event [3] = amount --amount of damage or healing
 		this_event [4] = time --parser time
-		this_event [5] = UnitHealth(Details:Ambiguate(alvo_name)) --current unit heal
+		this_event [5] = UnitHealth(alvo_name)  / UnitHealthMax(alvo_name) --current unit heal
 		this_event [6] = who_name --source name
 		this_event [7] = is_shield
 		this_event [8] = absorbed
@@ -2769,7 +2883,22 @@
 	--BUFFS & DEBUFFS 	search key: ~buff ~aura ~shield								|
 -----------------------------------------------------------------------------------------------------------------------------------------
 
+	--aura ddebugger
+	local function aura_debugger_parserfile(type, spellName, sourceName, targetName)
+		do return end --don't enable on releases
+
+		if (Details.zone_type == "party" or true) then
+			if (sourceName == UnitName("player")) then
+				--print("buff", type, spellName, sourceName, "on", targetName)
+			end
+		end
+	end
+
 	function parser:buff(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, spellschool, auraType, amount, arg1, arg2, arg3)
+		if (ignoredWorldAuras[spellId]) then
+			return
+		end
+
 		--not yet well know about unnamed buff casters
 		if (not targetName) then
 			targetName = "[*] Unknown shield target"
@@ -2805,6 +2934,8 @@
 		end
 
 		if (auraType == "BUFF") then
+			--aura_debugger_parserfile("IN", spellName, sourceName, targetName)
+
 			if (LIB_OPEN_RAID_BLOODLUST[spellId]) then --~bloodlust
 				if (Details.playername == targetName) then
 					_current_combat.bloodlust = _current_combat.bloodlust or {}
@@ -2841,14 +2972,14 @@
 				local thisEvent = deathLog[i]
 
 				if (not thisEvent) then
-					return print("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+					return Details:Msg("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
 				end
 
 				thisEvent[1] = 5 --5 = buff aplication
 				thisEvent[2] = spellId --spellid
 				thisEvent[3] = 1
 				thisEvent[4] = time --parser time
-				thisEvent[5] = UnitHealth(Details:Ambiguate(targetName)) --current unit heal
+				thisEvent[5] = UnitHealth(targetName) / UnitHealthMax(targetName) --current unit heal
 				thisEvent[6] = sourceName --source name
 				thisEvent[7] = false
 				thisEvent[8] = false
@@ -2898,15 +3029,12 @@
 				return parser:add_buff_uptime(token, time, sourceSerial, sourceName, sourceFlags, sourceSerial, sourceName, sourceFlags, 0x0, spellId, spellName, "BUFF_UPTIME_IN")
 			end
 
-			if (isWOTLK) then
+			if (isCLASSIC) then
 				if (SHAMAN_EARTHSHIELD_BUFF[spellId]) then
 					TBC_EarthShieldCache[targetName] = {sourceSerial, sourceName, sourceFlags}
 
 				elseif (spellId == SPELLID_PRIEST_POM_BUFF) then
 					TBC_PrayerOfMendingCache [targetName] = {sourceSerial, sourceName, sourceFlags}
-
-				elseif (spellId == 27163 and false) then --Judgement Of Light
-					TBC_JudgementOfLightCache[targetName] = {sourceSerial, sourceName, sourceFlags}
 				end
 			end
 
@@ -2917,7 +3045,7 @@
 				--player itself
 				parser:add_buff_uptime(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_IN")
 
-			elseif (container_pets[sourceSerial] and container_pets[sourceSerial][2] == targetSerial) then
+			elseif (petCache[sourceSerial] and petCache[sourceSerial][2] == targetSerial) then
 				--pet putting an aura on its owner
 				parser:add_buff_uptime(token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_IN")
 
@@ -2927,7 +3055,7 @@
 			end
 
 			--healing done absorbs
-			if (_use_shield_overheal) then
+			if (_parser_options.shield_overheal) then
 				if (shield_spellid_cache[spellId] and amount) then
 					if (not shield_cache[targetName]) then
 						shield_cache[targetName] = {}
@@ -2948,12 +3076,6 @@
 	--recording debuffs applied by player
 
 		elseif (auraType == "DEBUFF") then
-			if (isWOTLK) then --buff applied
-				if (spellId == 27162 and false) then --Judgement Of Light
-					--which player applied the judgement of light on this mob
-					TBC_JudgementOfLightCache[targetName] = {sourceSerial, sourceName, sourceFlags}
-				end
-			end
 
 		------------------------------------------------------------------------------------------------
 		--spell reflection
@@ -2967,7 +3089,8 @@
 			if (_in_combat) then
 				------------------------------------------------------------------------------------------------
 				--buff uptime
-				if (cc_spell_list [spellId]) then
+				if (crowdControlSpells[spellId] or Details.CrowdControlSpellNamesCache[spellName]) then --
+					--print("adding cc done", sourceName, targetName, spellId, spellName)
 					parser:add_cc_done (token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName)
 				end
 
@@ -2988,6 +3111,10 @@
 
 	--~refresh
 	function parser:buff_refresh(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, spellschool, tipo, amount)
+		if (ignoredWorldAuras[spellId]) then
+			return
+		end
+
 		if (not sourceName) then
 			sourceName = names_cache[spellName]
 			if (not sourceName) then
@@ -3003,6 +3130,8 @@
 		end
 
 		if (tipo == "BUFF") then
+			--aura_debugger_parserfile("RE", spellName, sourceName, targetName)
+
 			if (spellId == 272790 and cacheAnything.track_hunter_frenzy) then --hunter pet Frenzy spellid
 				local miscActorObject = misc_cache[sourceName]
 				if (miscActorObject) then
@@ -3029,7 +3158,7 @@
 				--call record buffs uptime
 				parser:add_buff_uptime (token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_REFRESH")
 
-			elseif (container_pets [sourceSerial] and container_pets [sourceSerial][2] == targetSerial) then
+			elseif (petCache [sourceSerial] and petCache [sourceSerial][2] == targetSerial) then
 				--um pet colocando uma aura do dono
 				parser:add_buff_uptime (token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_REFRESH")
 
@@ -3037,7 +3166,7 @@
 				parser:add_buff_uptime(token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_REFRESH")
 			end
 
-			if (_use_shield_overheal) then
+			if (_parser_options.shield_overheal) then
 				if (shield_spellid_cache[spellId] and amount) then
 					if (shield_cache[targetName] and shield_cache[targetName][spellId] and shield_cache[targetName][spellId][sourceName]) then
 						if (ignored_overheal[spellId]) then
@@ -3061,12 +3190,6 @@
 	--recording debuffs applied by player
 
 		elseif (tipo == "DEBUFF") then
-			if (isWOTLK) then --buff refresh
-				if (spellId == 27162 and false) then --Judgement Of Light
-					--which player applied the judgement of light on this mob
-					TBC_JudgementOfLightCache[targetName] = {sourceSerial, sourceName, sourceFlags}
-				end
-			end
 
 			if (_in_combat) then
 				------------------------------------------------------------------------------------------------
@@ -3083,6 +3206,10 @@
 
 	-- ~unbuff
 	function parser:unbuff(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, spellSchool, tipo, amount)
+		if (ignoredWorldAuras[spellId]) then
+			return
+		end
+
 		if (not sourceName) then
 			sourceName = names_cache[spellName]
 			if (not sourceName) then
@@ -3098,6 +3225,8 @@
 		end
 
 		if (tipo == "BUFF") then
+			--aura_debugger_parserfile("OUT", spellName, sourceName, targetName)
+
 			if (spellId == 272790 and cacheAnything.track_hunter_frenzy) then --hunter pet Frenzy spellid
 				if (not pet_frenzy_cache[sourceName]) then
 					return
@@ -3113,7 +3242,7 @@
 			elseif (sourceName == targetName and raid_members_cache[sourceSerial] and _in_combat) then
 				--call record buffs uptime
 				parser:add_buff_uptime(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_OUT")
-			elseif (container_pets[sourceSerial] and container_pets[sourceSerial][2] == targetSerial) then
+			elseif (petCache[sourceSerial] and petCache[sourceSerial][2] == targetSerial) then
 				--um pet colocando uma aura do dono
 				parser:add_buff_uptime(token, time, targetSerial, targetName, targetFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, "BUFF_UPTIME_OUT")
 
@@ -3134,7 +3263,7 @@
 
 			------------------------------------------------------------------------------------------------
 			--shield overheal
-			if (_use_shield_overheal) then
+			if (_parser_options.shield_overheal) then
 				if (shield_spellid_cache[spellId]) then
 					if (shield_cache [targetName] and shield_cache [targetName][spellId] and shield_cache [targetName][spellId][sourceName]) then
 						if (amount) then
@@ -3160,11 +3289,6 @@
 	------------------------------------------------------------------------------------------------
 	--recording debuffs applied by player
 		elseif (tipo == "DEBUFF") then
-			if (isWOTLK) then --buff removed
-				if (spellId == 27162 and false) then --Judgement Of Light
-					TBC_JudgementOfLightCache[targetName] = nil
-				end
-			end
 
 		------------------------------------------------------------------------------------------------
 		--spell reflection
@@ -3295,86 +3419,86 @@
 	--MISC 	search key: ~buffuptime ~buffsuptime									|
 -----------------------------------------------------------------------------------------------------------------------------------------
 
-	function parser:add_bad_debuff_uptime (token, time, who_serial, who_name, who_flags, alvo_serial, alvo_name, alvo_flags, alvo_flags2, spellid, spellname, spellschool, in_out, stack_amount)
-
-		if (not alvo_name) then
+	function parser:add_bad_debuff_uptime(token, time, sourceGuid, sourceName, sourceFlags, targetGuid, targetName, targetFlags, targetsFlags2, spellId, spellName, spellSchool, sInOrOut, stackSize)
+		if (ignoredWorldAuras[spellId]) then
+			return
+		elseif (not targetName) then
 			--no target name, just quit
 			return
-		elseif (not who_name) then
+		elseif (not sourceName) then
 			--no actor name, use spell name instead
-			who_name = "[*] "..spellname
+			sourceName = "[*] "..spellName
 		end
 
 		------------------------------------------------------------------------------------------------
 		--get actors
 			--nome do debuff ser� usado para armazenar o nome do ator
-			local este_jogador = misc_cache [spellname]
-			if (not este_jogador) then --pode ser um desconhecido ou um pet
-				este_jogador = _current_misc_container:GetOrCreateActor (who_serial, spellname, who_flags, true)
-				misc_cache [spellname] = este_jogador
+			local sourceActor = misc_cache[spellName]
+			if (not sourceActor) then --pode ser um desconhecido ou um pet
+				sourceActor = _current_misc_container:GetOrCreateActor (sourceGuid, spellName, sourceFlags, true)
+				misc_cache[spellName] = sourceActor
 			end
 
 		------------------------------------------------------------------------------------------------
 		--build containers on the fly
-
-			if (not este_jogador.debuff_uptime) then
-				este_jogador.boss_debuff = true
-				este_jogador.damage_twin = who_name
-				este_jogador.spellschool = spellschool
-				este_jogador.damage_spellid = spellid
-				este_jogador.debuff_uptime = 0
-				este_jogador.debuff_uptime_spells = spellContainerClass:CreateSpellContainer (container_misc)
-				este_jogador.debuff_uptime_targets = {}
+			if (not sourceActor.debuff_uptime) then
+				sourceActor.boss_debuff = true
+				sourceActor.damage_twin = sourceName
+				sourceActor.spellschool = spellSchool
+				sourceActor.damage_spellid = spellId
+				sourceActor.debuff_uptime = 0
+				sourceActor.debuff_uptime_spells = spellContainerClass:CreateSpellContainer (container_misc)
+				sourceActor.debuff_uptime_targets = {}
 			end
 
 		------------------------------------------------------------------------------------------------
 		--add amount
-
 			--update last event
-			este_jogador.last_event = _tempo
+			sourceActor.last_event = _tempo
 
 			--actor target
-			local este_alvo = este_jogador.debuff_uptime_targets [alvo_name]
+			local este_alvo = sourceActor.debuff_uptime_targets [targetName]
 			if (not este_alvo) then
 				este_alvo = Details.atributo_misc:CreateBuffTargetObject()
-				este_jogador.debuff_uptime_targets [alvo_name] = este_alvo
+				sourceActor.debuff_uptime_targets [targetName] = este_alvo
 			end
 
-			if (in_out == "DEBUFF_UPTIME_IN") then
+			if (sInOrOut == "DEBUFF_UPTIME_IN") then
 				este_alvo.actived = true
 				este_alvo.activedamt = este_alvo.activedamt + 1
 				if (este_alvo.actived_at and este_alvo.actived) then
 					este_alvo.uptime = este_alvo.uptime + _tempo - este_alvo.actived_at
-					este_jogador.debuff_uptime = este_jogador.debuff_uptime + _tempo - este_alvo.actived_at
+					sourceActor.debuff_uptime = sourceActor.debuff_uptime + _tempo - este_alvo.actived_at
 				end
+
 				este_alvo.actived_at = _tempo
 
 				--death log
 					--record death log
-					local t = last_events_cache [alvo_name]
+					local t = last_events_cache[targetName]
 
 					if (not t) then
-						t = _current_combat:CreateLastEventsTable (alvo_name)
+						t = _current_combat:CreateLastEventsTable(targetName)
 					end
 
 					local i = t.n
 
-					local this_event = t [i]
+					local thisEvent = t[i]
 
-					if (not this_event) then
-						return print("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+					if (not thisEvent) then
+						return Details:Msg("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
 					end
 
-					this_event [1] = 4 --4 = debuff aplication
-					this_event [2] = spellid --spellid
-					this_event [3] = 1
-					this_event [4] = time --parser time
-					this_event [5] = UnitHealth(Details:Ambiguate(alvo_name)) --current unit heal
-					this_event [6] = who_name --source name
-					this_event [7] = false
-					this_event [8] = false
-					this_event [9] = false
-					this_event [10] = false
+					thisEvent[1] = 4 --4 = debuff aplication
+					thisEvent[2] = spellId --spellid
+					thisEvent[3] = 1
+					thisEvent[4] = time --parser time
+					thisEvent[5] = UnitHealth(targetName) / UnitHealthMax(targetName) --current unit heal
+					thisEvent[6] = sourceName --source name
+					thisEvent[7] = false
+					thisEvent[8] = false
+					thisEvent[9] = false
+					thisEvent[10] = false
 
 					i = i + 1
 
@@ -3384,10 +3508,10 @@
 						t.n = i
 					end
 
-			elseif (in_out == "DEBUFF_UPTIME_REFRESH") then
+			elseif (sInOrOut == "DEBUFF_UPTIME_REFRESH") then
 				if (este_alvo.actived_at and este_alvo.actived) then
 					este_alvo.uptime = este_alvo.uptime + _tempo - este_alvo.actived_at
-					este_jogador.debuff_uptime = este_jogador.debuff_uptime + _tempo - este_alvo.actived_at
+					sourceActor.debuff_uptime = sourceActor.debuff_uptime + _tempo - este_alvo.actived_at
 				end
 				este_alvo.actived_at = _tempo
 				este_alvo.actived = true
@@ -3397,44 +3521,58 @@
 					--local name, texture, count, debuffType, duration, expirationTime, caster, canStealOrPurge, nameplateShowPersonal, spellId = UnitAura (alvo_name, spellname, nil, "HARMFUL")
 					--UnitAura ("Kastfall", "Gulp Frog Toxin", nil, "HARMFUL")
 
+--6/27 15:06:18.113  SPELL_AURA_APPLIED_DOSE,Creature-0-2085-2657-20918-227617-0000FDAA05,"Cosmic Simulacrum",0xa48,0x0,Player-4184-005CFB2D,"nil",0x511,0x0,459273,"Cosmic Shards",0x20,DEBUFF,4
+--6/27 15:06:18.114  SPELL_AURA_REFRESH,Creature-0-2085-2657-20918-227617-0000FDAA05,"Cosmic Simulacrum",0xa48,0x0,Player-4184-005CFB2D,"nil",0x511,0x0,459273,"Cosmic Shards",0x20,DEBUFF
+
 					--record death log
-					local t = last_events_cache [alvo_name]
+					local t = last_events_cache[targetName]
 
 					if (not t) then
-						t = _current_combat:CreateLastEventsTable (alvo_name)
+						t = _current_combat:CreateLastEventsTable(targetName)
 					end
 
 					local i = t.n
 
-					local this_event = t [i]
-
-					if (not this_event) then
-						return print("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+					local bCanAdd = true
+					local previousEvent = t[i-1]
+					if (previousEvent) then
+						if (previousEvent[1] == 4 and previousEvent[2] == spellId and detailsFramework.Math.IsNearlyEqual(time, previousEvent[4], 0.01)) then
+							--don't repeat the application of the same debuff
+							bCanAdd = false
+						end
 					end
 
-					this_event [1] = 4 --4 = debuff aplication
-					this_event [2] = spellid --spellid
-					this_event [3] = stack_amount or 1
-					this_event [4] = time --parser time
-					this_event [5] = UnitHealth(Details:Ambiguate(alvo_name)) --current unit heal
-					this_event [6] = who_name --source name
-					this_event [7] = false
-					this_event [8] = false
-					this_event [9] = false
-					this_event [10] = false
+					if (bCanAdd) then
+						local thisEvent = t[i]
 
-					i = i + 1
+						if (not thisEvent) then
+							return Details:Msg("Parser Event Error -> Set to 16 DeathLogs and /reload", i, _amount_of_last_events)
+						end
 
-					if (i == _amount_of_last_events+1) then
-						t.n = 1
-					else
-						t.n = i
+						thisEvent[1] = 4 --4 = debuff aplication
+						thisEvent[2] = spellId --spellid
+						thisEvent[3] = stackSize or 1
+						thisEvent[4] = time --parser time
+						thisEvent[5] = UnitHealth(targetName) / UnitHealthMax(targetName) --current unit heal
+						thisEvent[6] = sourceName --source name
+						thisEvent[7] = false
+						thisEvent[8] = false
+						thisEvent[9] = false
+						thisEvent[10] = false
+
+						i = i + 1
+
+						if (i == _amount_of_last_events+1) then
+							t.n = 1
+						else
+							t.n = i
+						end
 					end
 
-			elseif (in_out == "DEBUFF_UPTIME_OUT") then
+			elseif (sInOrOut == "DEBUFF_UPTIME_OUT") then
 				if (este_alvo.actived_at and este_alvo.actived) then
 					este_alvo.uptime = este_alvo.uptime + Details._tempo - este_alvo.actived_at
-					este_jogador.debuff_uptime = este_jogador.debuff_uptime + _tempo - este_alvo.actived_at --token = actor misc object
+					sourceActor.debuff_uptime = sourceActor.debuff_uptime + _tempo - este_alvo.actived_at --token = actor misc object
 				end
 
 				este_alvo.activedamt = este_alvo.activedamt - 1
@@ -3463,6 +3601,10 @@
 	---@param sAuraInOrOut string
 	---@param bAddToTarget boolean|nil not in use on debuffs at the moment
 	function parser:add_debuff_uptime(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, sAuraInOrOut, bAddToTarget)
+		if (ignoredWorldAuras[spellId]) then
+			return
+		end
+
 		_current_misc_container.need_refresh = true
 
 		local sourceActor = misc_cache[sourceName]
@@ -3505,6 +3647,10 @@
 	---@param bAddToTarget boolean? --special auras which has to be added to the caster and target
 	---@param bOverrideTime boolean?
 	function parser:add_buff_uptime(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, sAuraInOrOut, bAddToTarget, bOverrideTime)
+		if (ignoredWorldAuras[spellId]) then
+			return
+		end
+
 		_current_misc_container.need_refresh = true
 
 		local sourceActor = misc_cache[sourceName]
@@ -3655,10 +3801,14 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		[SPELL_POWER_FURY] = {file = [[Interface\PLAYERFRAME\UI-PlayerFrame-Deathknight-Blood-On]], coords = {0, 1, 0, 1}},
 	}
 
-	local alternatePowerEnableFrame = CreateFrame("frame")
-	local alternatePowerMonitorFrame = CreateFrame("frame")
-	alternatePowerEnableFrame:RegisterEvent("UNIT_POWER_BAR_SHOW")
-	alternatePowerEnableFrame:RegisterEvent("ENCOUNTER_END")
+	local alternatePowerEnableFrame = CreateFrame("frame", "DetailsAlternatePowerEventHandler")
+	local alternatePowerMonitorFrame = CreateFrame("frame", "DetailsAlternatePowerMonitor")
+
+	if not detailsFramework:IsAddonApocalypseWow() then
+		alternatePowerEnableFrame:RegisterEvent("UNIT_POWER_BAR_SHOW")
+		alternatePowerEnableFrame:RegisterEvent("ENCOUNTER_END")
+	end
+
 	alternatePowerEnableFrame.IsRunning = false
 
 	--alternate power will only run when the encounter has a alternate power bar
@@ -3677,7 +3827,12 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		if (powerType == "ALTERNATE") then
 			local actorName = Details:GetFullName(unitID)
 			if (actorName) then
-				local power = _current_combat.alternate_power[actorName]
+				--weird bug on cata as described below
+				if (not _current_combat.alternate_power) then
+					_current_combat.alternate_power = {}
+				end
+
+				local power = _current_combat.alternate_power[actorName] --cata: 120x Details/core/parser.lua:3694: attempt to index field 'alternate_power' (a nil value)
 				if (not power) then
 					power = _current_combat:CreateAlternatePowerTable(actorName)
 				end
@@ -3877,7 +4032,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				thisEvent[2] = spellId --spellid || false if this is a battle ress line
 				thisEvent[3] = 1 --amount of damage or healing
 				thisEvent[4] = time
-				thisEvent[5] = UnitHealth(Details:Ambiguate(sourceName))
+				thisEvent[5] = UnitHealth(sourceName) / UnitHealthMax(sourceName)
 				thisEvent[6] = sourceName
 
 				i = i + 1
@@ -3923,7 +4078,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	---@param sourceSerial guid
 	---@param sourceName actorname
 	---@param sourceFlags controlflags
-	---@param targetSerial guid
+	---@param targetGUID guid
 	---@param targetName actorname
 	---@param targetFlags controlflags
 	---@param targetFlags2 number
@@ -3933,7 +4088,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	---@param extraSpellID spellid
 	---@param extraSpellName spellname
 	---@param extraSchool spellschool
-	function parser:interrupt(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
+	function parser:interrupt(token, time, sourceSerial, sourceName, sourceFlags, targetGUID, targetName, targetFlags, targetFlags2, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
 		--quake affix from mythic+
 		if (spellId == 240448) then
 			return
@@ -3962,19 +4117,17 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 
 		if (not ownerActor) then
-			petName, ownerName, ownerGUID, ownerFlags = Details.tabela_pets:GetPetOwner(sourceSerial, sourceName, sourceFlags)
+			petName, ownerName, ownerGUID, ownerFlags = petContainer.GetOwner(sourceSerial, targetName)
 			if (petName) then
 				ownerActor = _current_misc_container:GetOrCreateActor(ownerGUID, ownerName, ownerFlags, true)
-				--print("pet found:", petName, ownerName, ownerGUID, ownerFlags)
 			end
 		end
-
-		--local sourceActor, ownerActor, sourceName = _current_misc_container:GetOrCreateActor(sourceSerial, sourceName, sourceFlags, true)
 
 	------------------------------------------------------------------------------------------------
 	--build containers on the fly
 		if (not sourceActor.interrupt) then
 			sourceActor.interrupt = Details:GetOrderNumber()
+			sourceActor.interrupt_cast_overlap = 0
 			sourceActor.interrupt_targets = {}
 			sourceActor.interrupt_spells = spellContainerClass:CreateSpellContainer(container_misc)
 			sourceActor.interrompeu_oque = {}
@@ -4014,10 +4167,30 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			--Details:Msg("warlock pet interrupt, owner:", (ownerActor and ownerActor.nome or "no owner"))
 		end
 
+		--interrupt overlaps
+        --get the list of interrupt attempts by this player
+        ---@type table<guid, interrupt_overlap[]>
+        local interruptCastsOnTarget = interruptOverlapCache[targetGUID]
+        if (interruptCastsOnTarget) then
+            --iterate among interrupt attempts on this target and find the one that matches the time of the interrupt and the source name
+            for i = #interruptCastsOnTarget, 1, -1 do
+                ---@type interrupt_overlap
+                local interruptAttempt = interruptCastsOnTarget[i]
+
+                if (interruptAttempt.sourceName == sourceName) then
+                    if (detailsFramework.Math.IsNearlyEqual(time, interruptAttempt.time, 0.1)) then
+                        --mark as a success interrupt
+                        interruptAttempt.interrupted = true
+                        break
+                    end
+                end
+            end
+        end		
+
 		--if the interrupt is from a pet, then we need to add the interrupt to the owner
 		if (ownerActor) then
 			if (not ownerActor.interrupt) then
-				ownerActor.interrupt = Details:GetOrderNumber(sourceName)
+				ownerActor.interrupt = Details:GetOrderNumber()
 				ownerActor.interrupt_targets = {}
 				ownerActor.interrupt_spells = spellContainerClass:CreateSpellContainer(container_misc)
 				ownerActor.interrompeu_oque = {}
@@ -4034,37 +4207,47 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			--which spells this actor interrupted
 			ownerActor.interrompeu_oque[extraSpellID] = (ownerActor.interrompeu_oque[extraSpellID] or 0) + 1
 
+			--owner spells table
+			local spell = ownerActor.interrupt_spells._ActorTable[spellId]
+			if (not spell) then
+				spell = ownerActor.interrupt_spells:GetOrCreateSpell(spellId, true, token)
+			end
+			_spell_utility_func(spell, targetName, token, extraSpellID, extraSpellName)
+
 			--pet interrupt
 			if (_hook_interrupt) then
 				for _, func in ipairs(_hook_interrupt_container) do
-					func(nil, token, time, ownerActor.serial, ownerActor.nome, ownerActor.flag_original, targetSerial, targetName, targetFlags, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
+					func(nil, token, time, ownerActor.serial, ownerActor.nome, ownerActor.flag_original, targetGUID, targetName, targetFlags, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
 				end
 			end
 		else
 			--player interrupt
 			if (_hook_interrupt) then
 				for _, func in ipairs(_hook_interrupt_container) do
-					func(nil, token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
+					func(nil, token, time, sourceSerial, sourceName, sourceFlags, targetGUID, targetName, targetFlags, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
 				end
 			end
 		end
 	end
 
-	---search key: ~spellcast ~castspell ~cast
+	---search key: ~spellcast ~castspell ~cast ~casts
 	---comment: this function is called when a spell is casted
 	---@param token string
 	---@param time number
 	---@param sourceSerial string
 	---@param sourceName string
 	---@param sourceFlags number
-	---@param targetSerial string
+	---@param targetGUID string
 	---@param targetName string
 	---@param targetFlags number
 	---@param targetRaidFlags number
 	---@param spellId number
 	---@param spellName string
 	---@param spellType number?
-	function parser:spellcast(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetRaidFlags, spellId, spellName, spellType)
+	---@param extraSpellID number?
+	---@param extraSpellName string?
+	---@param extraSchool number?
+	function parser:spellcast(token, time, sourceSerial, sourceName, sourceFlags, targetGUID, targetName, targetFlags, targetRaidFlags, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool)
 		--only capture if is in combat
 		if (not _in_combat) then
 			return
@@ -4072,6 +4255,12 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		if (not sourceName) then
 			sourceName = "[*] " .. spellName
+		end
+
+		if (Details.debug_spell_cast) then
+			if (LIB_OPEN_RAID_CROWDCONTROL[spellId]) then
+				Details:Msg("Spell casted (parser):", sourceName, targetName, spellName, spellId)
+			end
 		end
 
 		---@type actor, actor
@@ -4105,6 +4294,16 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			_current_combat.amountCasts[sourceName] = castsByPlayer
 		end
 
+		if (ownerActor) then
+			--add a cast to the owner
+			local ownerName = ownerActor.nome
+			castsByPlayer = _current_combat.amountCasts[ownerName]
+			if (not castsByPlayer) then
+				castsByPlayer = {}
+				_current_combat.amountCasts[ownerName] = castsByPlayer
+			end
+		end
+
 		--rampage cast spam
 		if (spellId == 184367 or spellId == 184707 or spellId == 201364) then --rampage spellIds (IDs from Retail - wow patch 10.1.0)
 			local latestRampageCastByPlayer = (cacheAnything.rampage_cast_amount[sourceName] or 0)
@@ -4118,9 +4317,38 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		amountOfCasts = amountOfCasts + 1
 		_current_combat.amountCasts[sourceName][spellName] = amountOfCasts
 
-		--if (sourceSerial == UnitGUID("player")) then
-		--	print(sourceName, spellName, amountOfCasts)
-		--end
+		--pet cast add to owner
+		if (ownerActor) then
+			local ownerName = ownerActor.nome
+			local amountOfCasts = _current_combat.amountCasts[ownerName][spellName] or 0
+			amountOfCasts = amountOfCasts + 1
+			_current_combat.amountCasts[ownerName][spellName] = amountOfCasts
+		end
+
+		if (Details.debug_spell_cast) then
+			if (LIB_OPEN_RAID_CROWDCONTROL[spellId]) then
+				Details:Msg("Spell casted (db):", sourceActor.nome, targetName, spellName, spellId)
+			end
+		end
+
+		--spell interrupt overlap
+		local interruptSpells = LIB_OPEN_RAID_SPELL_INTERRUPT
+        --check if this is an interrupt spell
+        if (interruptSpells[spellId]) then
+            interruptOverlapCache[targetGUID] = interruptOverlapCache[targetGUID] or {}
+            ---@type interrupt_overlap
+            local spellOverlapData = {
+                time = time,
+                sourceName = sourceName,
+                spellId = spellId,
+                targetName = targetName,
+                extraSpellID = extraSpellID,
+                used = false,
+                interrupted = false,
+            }
+            --store the interrupt attempt in a table
+            table.insert(interruptOverlapCache[targetGUID], spellOverlapData)
+        end
 
 	------------------------------------------------------------------------------------------------
 	--record cooldowns cast which can't track with buff applyed
@@ -4138,7 +4366,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 						targetName = "--x--x--"
 					end
 				end
-				return parser:add_defensive_cooldown(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetRaidFlags, spellId, spellName)
+				return parser:add_defensive_cooldown(token, time, sourceSerial, sourceName, sourceFlags, targetGUID, targetName, targetFlags, targetRaidFlags, spellId, spellName)
 			end
 		else
 			--enemy successful casts (not interrupted)
@@ -4347,7 +4575,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 							spellId,
 							1,
 							time,
-							UnitHealth(Details:Ambiguate(targetName)),
+							UnitHealth(targetName) / UnitHealthMax(targetName),
 							sourceName
 						})
 						break
@@ -4376,7 +4604,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 	--serach key: ~cc
 	function parser:break_cc(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, spellId, spellName, spellType, extraSpellID, extraSpellName, extraSchool, auraType)
-		if (not cc_spell_list[spellId]) then
+		if (not crowdControlSpells[spellId]) then
 			return
 
 		elseif (bitBand(sourceFlags, AFFILIATION_GROUP) == 0) then
@@ -4462,6 +4690,11 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	---@param targetName string
 	---@param targetFlags number
 	function parser:dead(token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags)
+		---@cast Details222 details222
+		if (petContainer.Pets[targetSerial]) then
+			petContainer.RemovePet(targetSerial)
+		end
+
 		--early checks and fixes
 		if (not targetName) then
 			return
@@ -4485,7 +4718,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			_current_combat.frags_need_refresh = true
 
 		--player death
-		elseif (not UnitIsFeignDeath(Details:Ambiguate(targetName))) then
+		elseif (not UnitIsFeignDeath(targetName)) then
 			if (
 				--player in your group
 				(bitBand(targetFlags, AFFILIATION_GROUP) ~= 0 or (damageActor and damageActor.grupo)) and
@@ -4501,7 +4734,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 				local bIsMythicRun = false
 				--check if this is a mythic+ run for overall deaths
-				local mythicLevel = C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo() --classic wow doesn't not have C_ChallengeMode API
+				local mythicLevel = C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo and C_ChallengeMode.GetActiveKeystoneInfo() --classic wow doesn't not have C_ChallengeMode API
 				if (mythicLevel and type(mythicLevel) == "number" and mythicLevel >= 2) then --several checks to be future proof
 					bIsMythicRun = true
 				end
@@ -4552,6 +4785,9 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				--get the index of the last event recorded
 				local lastIndex = recordedEvents.n
 
+				--first, remove all healing events where the player was at full health
+
+				--here the event log gets reordered as in the parser it work with index recycling
 				if (lastIndex < _amount_of_last_events+1 and not recordedEvents[lastIndex][4]) then
 					--the last events table amount of indexes is less than the amount of events to store
 					for i = 1, lastIndex-1 do
@@ -4591,7 +4827,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				local enemyCastCache = enemy_cast_cache
 
 				--as multiple enemies can have casted the same spell at the same time, iterate over the enemyCastCache and merge the casts that happened really close to each other
-				--transfer the casts that happened within the the events window of the player death to a new indexed table
+				--transfer the casts that happened within the event window of the player death to a new indexed table
 				local enemyCastCacheIndexed = {}
 				if (bHadDeathEvent) then
 					for time, enemyCastTable in pairs(enemyCastCache) do
@@ -4643,7 +4879,6 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 								newEventTable[4] = enemyCastTime --when the event happened using unix time
 								newEventTable[5] = 0 --player health when the event happened
 								newEventTable[6] = enemyName --source name
-								--print("addin enemy cast event", alvo_name, i, enemyCastTime+0.1, ">", eventTime)
 								tinsert(eventsBeforePlayerDeath, i, newEventTable)
 								currentEnemyCastIndex = enemyCastEventIndex + 1
 								break
@@ -4652,6 +4887,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 					end
 				end
 
+				--verify if a cooldown near the death event was used
 				if (thisPlayer.last_cooldown) then
 					--create a new event to show the latest cooldown the player used before death and add it to the list of events before death
 					local eventType = 3 --last cooldown used
@@ -4690,7 +4926,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 						maxHealth = 0
 					end
 				else
-					maxHealth = UnitHealthMax(Details:Ambiguate(thisPlayer.nome))
+					maxHealth = UnitHealthMax(thisPlayer.nome)
 				end
 
 				local playerDeathTable
@@ -4757,6 +4993,12 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			end
 		end
 	end
+
+	--local WA_OnPlayerDeath = function(isFakeDeath, token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, deathLog, lastCooldown, combatElapsedTime, maxHealth, mythicPlusElapsedTime)
+		--check auras with details! death log enabled
+		--run a script in the aura which receives interesting data from the WA_OnPlayerDeath()
+	--end
+	--Details:InstallHook("HOOK_DEATH", WA_OnPlayerDeath)
 
 	function parser:environment(token, time, sourceSerial, who_name, who_flags, alvo_serial, alvo_name, alvo_flags, alvo_flags2, env_type, amount)
 		local spelId
@@ -4836,6 +5078,13 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		return Details.capture_real[captureType]
 	end
 
+	function Details:CaptureReset()
+		Details:CancelAllCaptureSchedules()
+		for _, thisType in ipairs(Details.capture_types) do
+			Details:CaptureSet(true, thisType, true)
+		end
+	end
+
 	function Details:CaptureSet(onOff, captureType, real, time)
 		if (onOff == nil) then
 			onOff = Details.capture_real[captureType]
@@ -4866,15 +5115,15 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		Details:Destroy(Details.capture_schedules)
 	end
 
-	function Details:CaptureTimeout (table)
-		local capture_type, schedule_id = unpack(table)
+	function Details:CaptureTimeout (table3)
+		local capture_type, schedule_id = unpack(table3)
 		Details.capture_current [capture_type] = Details.capture_real [capture_type]
 		Details:CaptureRefresh()
 
-		for index, table in ipairs(Details.capture_schedules) do
-			local id = table [2]
+		for index, table2 in ipairs(Details.capture_schedules) do
+			local id = table2 [2]
 			if (schedule_id == id) then
-				tremove(Details.capture_schedules, index)
+				table.remove(Details.capture_schedules, index)
 				break
 			end
 		end
@@ -4987,8 +5236,10 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			token_list ["SPELL_AURA_APPLIED_DOSE"] = parser.buff_refresh
 
 		elseif (capture_type == "energy") then
-			token_list ["SPELL_ENERGIZE"] = parser.energize
-			token_list ["SPELL_PERIODIC_ENERGIZE"] = parser.energize
+			if (_parser_options.energy_resources) then
+				token_list ["SPELL_ENERGIZE"] = parser.energize
+				token_list ["SPELL_PERIODIC_ENERGIZE"] = parser.energize
+			end
 
 		elseif (capture_type == "spellcast") then
 			token_list ["SPELL_CAST_SUCCESS"] = parser.spellcast
@@ -5035,19 +5286,6 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		["dead"] = parser.dead,
 		["spell_empower"] = parser.spell_empower,
 	}
-
-	function parser:SetParserFunction (token, func)
-		if (parser.original_functions [token]) then
-			if (type(func) == "function") then
-				parser [token] = func
-			else
-				parser [token] = parser.original_functions [token]
-			end
-			parser:RefreshFunctions()
-		else
-			return Details:Msg("Invalid Token for SetParserFunction.")
-		end
-	end
 
 	local all_parser_tokens = {
 		["SPELL_PERIODIC_DAMAGE"] = "spell_dmg",
@@ -5171,21 +5409,57 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		return Details.zone_type
 	end
 
+	local gotAggro = false
+	function Details.parser_functions:UNIT_FLAGS(...)
+		if (gotAggro) then
+			return
+		end
+
+		if (Details:GetZoneType() ~= "raid" and Details:GetZoneType() ~= "party") then
+			return
+		end
+
+		local unitId = ...
+
+		if (UnitExists(unitId)) then
+			if (UnitAffectingCombat(unitId) and not UnitAffectingCombat("player")) then
+				Details.LastAggro = UnitName(unitId)
+				gotAggro = true
+				C_Timer.After(1, function()
+					gotAggro = false
+				end)
+			end
+		end
+	end
+
+	function Details.parser_functions:SCENARIO_COMPLETED(...)
+
+	end
+
 	function Details.parser_functions:ZONE_CHANGED_NEW_AREA(...)
 		return Details.Schedules.After(1, Details.Check_ZONE_CHANGED_NEW_AREA)
 	end
 
 	--~zone ~area
 	function Details:Check_ZONE_CHANGED_NEW_AREA()
-		local zoneName, zoneType, _, _, _, _, _, zoneMapID = GetInstanceInfo()
+		local zoneName, zoneType, difficultyID, difficultyName, _, _, _, zoneMapID = GetInstanceInfo()
 
 		Details.zone_type = zoneType
 		Details.zone_id = zoneMapID
 		Details.zone_name = zoneName
 
+		Details:SetDeathLogTemporaryLimit(nil) --reset the temp amount
+
+		--Details222.ContextManager:CheckContextInterest(zoneMapID, zoneName, zoneType, difficultyID)
+
 		_in_resting_zone = IsResting()
 
+		if (_in_resting_zone) then
+			Details:CaptureReset()
+		end
+
 		parser:WipeSourceCache()
+		Details.listener:UnregisterEvent("UNIT_FLAGS")
 
 		_is_in_instance = false
 
@@ -5207,10 +5481,6 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 
 		Details.time_type = Details.time_type_original
-
-		if (Details.debug) then
-			Details:Msg("(debug) zone change:", Details.zone_name, "is a", Details.zone_type, "zone.")
-		end
 
 		if (Details.is_in_arena and zoneType ~= "arena") then
 			Details:LeftArena()
@@ -5239,7 +5509,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			end
 
 			if (not _in_combat) then
-				Details:EntrarEmCombate()
+				Details222.StartCombat()
 			end
 
 			_current_combat.pvp = true
@@ -5280,9 +5550,11 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				end
 			end
 
+			--increase the deathlog amount for arenas
+			Details:SetDeathLogTemporaryLimit(100)
+
 			Details.is_in_arena = true
 			Details:EnteredInArena()
-
 		else
 			local inInstance = IsInInstance()
 			if ((zoneType == "raid" or zoneType == "party") and inInstance) then
@@ -5290,10 +5562,21 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 				--if the current raid is current tier raid, pre-load the storage database
 				if (zoneType == "raid") then
-					if (Details.InstancesToStoreData [zoneMapID]) then
-						Details.ScheduleLoadStorage()
+					if (not Details222.EJCache.CacheCreated) then
+						--this is running right after the player login, wait a few seconds for the cache to be created
+						C_Timer.After(5, function()
+							if (Details:IsZoneIdFromCurrentExpansion(zoneMapID)) then
+								Details.ScheduleLoadStorage()
+							end
+						end)
+					else
+						if (Details:IsZoneIdFromCurrentExpansion(zoneMapID)) then
+							Details.ScheduleLoadStorage()
+						end
 					end
 				end
+
+				Details.listener:RegisterEvent("UNIT_FLAGS")
 			end
 
 			if (Details:IsInInstance()) then
@@ -5321,16 +5604,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			Details:Msg("(debug) |cFFFFFF00ENCOUNTER_START|r event triggered.")
 		end
 
-		if (not isWOTLK) then
-			C_Timer.After(1, function()
-				if (Details.show_warning_id1) then
-					if (Details.show_warning_id1_amount < 2) then
-						Details.show_warning_id1_amount = Details.show_warning_id1_amount + 1
-						--Details:Msg("|cFFFFFF00you might find differences on damage done, this is due to a bug in the game client, nothing related to Details! itself (" .. Details.show_warning_id1_amount .. " / 10).")
-					end
-				end
-			end)
-		end
+		Details:Destroy(Details.encounter_table)
 
 		Details222.Perf.WindowUpdate = 0
 		Details222.Perf.WindowUpdateC = true
@@ -5340,33 +5614,49 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			return
 		end
 
-		--leave the current combat when the encounter start, if is doing a mythic plus dungeons, check if the options allows to create a dedicated segment for the boss fight
-		if ((_in_combat and not Details.tabela_vigente.is_boss) and (not Details.MythicPlus.Started or Details.mythic_plus.boss_dedicated_segment)) then
-			Details:SairDoCombate()
+		if not detailsFramework.IsAddonApocalypseWow() then
+			--leave the current combat when the encounter start, if is doing a mythic plus dungeons, check if the options allows to create a dedicated segment for the boss fight
+			if ((_in_combat and not Details.tabela_vigente.is_boss) and (not Details.MythicPlus.Started or Details.mythic_plus.boss_dedicated_segment)) then
+				Details:SairDoCombate()
+			end
 		end
 
 		local encounterID, encounterName, difficultyID, raidSize = select(1, ...)
-		local zoneName, _, _, _, _, _, _, zoneMapID = GetInstanceInfo()
+		local zoneName, zoneType, _, _, _, _, _, zoneMapID = GetInstanceInfo()
 
-		if (Details.InstancesToStoreData[zoneMapID]) then
+		if not detailsFramework.IsAddonApocalypseWow() then
+			if (zoneType == "party") then
+				local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+				if (openRaidLib) then
+					openRaidLib.KeystoneInfoManager.SendPlayerKeystoneInfoToParty()
+				end
+			end
+		end
+
+		if (Details:IsZoneIdFromCurrentExpansion(zoneMapID)) then
+			--print("encouter is from current expansion")
 			Details.current_exp_raid_encounters[encounterID] = true
 		end
 
-		if (not Details.WhoAggroTimer and Details.announce_firsthit.enabled) then
-			Details.WhoAggroTimer = C_Timer.NewTimer(0.1, whoAggro)
-			for i = 1, 5 do
-				local boss = UnitExists("boss" .. i)
-				if (boss) then
-					local targetName = UnitName ("boss" .. i .. "target")
-					if (targetName and type(targetName) == "string") then
-						Details.bossTargetAtPull = targetName
-						break
+		Details222.DebugMsg("|cFFFFFF00Who Aggro by UNIT_FLAGS:", Details.LastAggro)
+
+		if not detailsFramework.IsAddonApocalypseWow() then
+			if (not Details.WhoAggroTimer and Details.announce_firsthit.enabled) then
+				Details.WhoAggroTimer = C_Timer.NewTimer(0.1, whoAggro)
+				for i = 1, 5 do
+					local boss = UnitExists("boss" .. i)
+					if (boss) then
+						local targetName = UnitName("boss" .. i .. "target")
+						if (targetName and type(targetName) == "string") then
+							Details.bossTargetAtPull = targetName
+							break
+						end
 					end
 				end
 			end
 		end
 
-		if (IsInGuild() and IsInRaid() and Details.announce_damagerecord.enabled and Details.StorageLoaded) then
+		if (IsInGuild() and IsInRaid() and Details.announce_damagerecord.enabled and Details222.storageLoaded) then
 			Details.TellDamageRecord = C_Timer.NewTimer(0.6, Details.PrintEncounterRecord)
 			Details.TellDamageRecord.Boss = encounterID
 			Details.TellDamageRecord.Diff = difficultyID
@@ -5375,15 +5665,14 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		_current_encounter_id = encounterID
 		Details.boss1_health_percent = 1
 
-		local dbm_mod, dbm_time = Details.encounter_table.DBM_Mod, Details.encounter_table.DBM_ModTime
+		local DBM_MOD, DBM_TIME = Details.encounter_table.DBM_Mod, Details.encounter_table.DBM_ModTime
 		Details:Destroy(Details.encounter_table)
 
 		Details.encounter_table.phase = 1
 
 		--store the encounter time inside the encounter table for the encounter plugin
 		Details.encounter_table.start = GetTime()
-		Details.encounter_table ["end"] = nil
---		local encounterID = Details.encounter_table.id
+		Details.encounter_table["end"] = nil
 		Details.encounter_table.id = encounterID
 		Details.encounter_table.name = encounterName
 		Details.encounter_table.diff = difficultyID
@@ -5391,38 +5680,25 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		Details.encounter_table.zone = zoneName
 		Details.encounter_table.mapid = zoneMapID
 
-		if (dbm_mod and dbm_time == time()) then --pode ser time() � usado no start pra saber se foi no mesmo segundo.
-			Details.encounter_table.DBM_Mod = dbm_mod
+		if (DBM_MOD and DBM_TIME == time()) then
+			Details.encounter_table.DBM_Mod = DBM_MOD
 		end
 
-		local encounter_start_table = Details:GetEncounterStartInfo (zoneMapID, encounterID)
-		if (encounter_start_table) then
-			if (encounter_start_table.delay) then
-				if (type(encounter_start_table.delay) == "function") then
-					local delay = encounter_start_table.delay()
-					if (delay) then
-						--_detalhes.encounter_table ["start"] = time() + delay
-						Details.encounter_table ["start"] = GetTime() + delay
-					end
-				else
-					--_detalhes.encounter_table ["start"] = time() + encounter_start_table.delay
-					Details.encounter_table ["start"] = GetTime() + encounter_start_table.delay
-				end
-			end
-			if (encounter_start_table.func) then
-				encounter_start_table:func()
-			end
-		end
-
-		local encounter_table, boss_index = Details:GetBossEncounterDetailsFromEncounterId (zoneMapID, encounterID)
-		if (encounter_table) then
-			Details.encounter_table.index = boss_index
+		local encounterTable, bossIndex = Details:GetBossEncounterDetailsFromEncounterId(zoneMapID, encounterID)
+		if (encounterTable) then
+			Details.encounter_table.index = bossIndex
 		end
 
 		Details:SendEvent("COMBAT_ENCOUNTER_START", nil, ...)
+
+		Details222.CacheKeystoneForAllGroupMembers()
 	end
 
-
+	---@param self details
+	---@return details_encounter_table
+	function Details:GetCurrentEncounterInfo()
+		return Details.encounter_table
+	end
 
 	--ENCOUNRTER_END
 	function Details.parser_functions:ENCOUNTER_END(...)
@@ -5432,34 +5708,14 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		Details222.Perf.WindowUpdateC = false
 
-		if (not isWOTLK) then
-			C_Timer.After(1, function()
-				if (Details.show_warning_id1) then
-					if (Details.show_warning_id1_amount < 2) then
-						Details.show_warning_id1_amount = Details.show_warning_id1_amount + 1
-						--Details:Msg("|cFFFFFF00you may find differences on damage done, this is due to a bug in the game client, nothing related to Details! itself (" .. Details.show_warning_id1_amount .. " / 10).")
-					end
-				end
-			end)
-		end
-
 		_current_encounter_id = nil
-
-		local _, instanceType = GetInstanceInfo() --let's make sure it isn't a dungeon
-		if (Details.zone_type == "party" or instanceType == "party") then
-			if (Details.debug) then
-				Details:Msg("(debug) the zone type is 'party', ignoring ENCOUNTER_END.")
-			end
-		end
 
 		local encounterID, encounterName, difficultyID, raidSize, endStatus = select(1, ...)
 
 		if (not Details.encounter_table.start) then
-			Details:Msg("encounter table without start time.")
+			--Details:Msg("encounter table without start time.")
 			return
 		end
-
-		Details222.Cache.ClearAugmentationCache()
 
 		Details.latest_ENCOUNTER_END = Details.latest_ENCOUNTER_END or 0
 		if (Details.latest_ENCOUNTER_END + 15 > GetTime()) then
@@ -5467,58 +5723,77 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 
 		Details.latest_ENCOUNTER_END = GetTime()
-		Details.encounter_table ["end"] = GetTime() -- 0.351
-
-		local _, _, _, _, _, _, _, zoneMapID = GetInstanceInfo()
+		Details.encounter_table["end"] = GetTime()
 
 		local bossIcon = Details:GetBossEncounterTexture(encounterName)
 		_current_combat.bossIcon = bossIcon
 
+		_current_combat.EncounterName = encounterName
+
 		if (_in_combat) then
 			if (endStatus == 1) then
 				Details.encounter_table.kill = true
-				Details:SairDoCombate (true, {encounterID, encounterName, difficultyID, raidSize, endStatus}) --killed
+				Details.encounter_table.end_status = 1
+				if not detailsFramework.IsAddonApocalypseWow() then
+					Details:SairDoCombate(true, {encounterID, encounterName, difficultyID, raidSize, endStatus}) --killed
+				end
 			else
 				Details.encounter_table.kill = false
-				Details:SairDoCombate (false, {encounterID, encounterName, difficultyID, raidSize, endStatus}) --wipe
-			end
-		else
-			if ((Details.tabela_vigente:GetEndTime() or 0) + 2 >= Details.encounter_table ["end"]) then
-				Details.tabela_vigente:SetStartTime (Details.encounter_table ["start"])
-				Details.tabela_vigente:SetEndTime (Details.encounter_table ["end"])
-				Details:RefreshMainWindow(-1, true)
-			end
-		end
-
-		--tag item level of all players
-		local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
-		local allPlayersGear = openRaidLib and openRaidLib.GetAllUnitsGear()
-
-		local status = xpcall(function()
-			for actorIndex, actorObject in Details:GetCurrentCombat():GetContainer(DETAILS_ATTRIBUTE_DAMAGE):ListActors() do
-				local gearInfo = allPlayersGear and allPlayersGear[actorObject:Name()]
-				if (gearInfo) then
-					actorObject.ilvl = gearInfo.ilevel
+				Details.encounter_table.end_status = 0
+				if not detailsFramework.IsAddonApocalypseWow() then
+					Details:SairDoCombate(false, {encounterID, encounterName, difficultyID, raidSize, endStatus}) --wipe
 				end
 			end
-		end, geterrorhandler())
-
-		if (not status) then
-			Details:Msg("ilvl error:", status)
+		else
+			if not detailsFramework.IsAddonApocalypseWow() then
+				if ((Details.tabela_vigente:GetEndTime() or 0) + 2 >= Details.encounter_table ["end"]) then
+					Details.tabela_vigente:SetStartTime(Details.encounter_table ["start"])
+					Details.tabela_vigente:SetEndTime(Details.encounter_table ["end"])
+					Details:RefreshMainWindow(-1, true)
+				end
+			end
 		end
 
-		Details:SendEvent("COMBAT_ENCOUNTER_END", nil, ...)
+		if not detailsFramework.IsAddonApocalypseWow() then
+			petContainer.Reset()
+			C_Timer.After(1, function() petContainer.PetScan("ENCOUNTER_END") end)
 
-		Details:Destroy(Details.encounter_table)
-		Details:Destroy(dk_pets_cache.army)
-		Details:Destroy(dk_pets_cache.apoc)
-		Details:Destroy(empower_cache)
+			--tag item level of all players
+			local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+			local allPlayersGear = openRaidLib and openRaidLib.GetAllUnitsGear()
+	
+			local status = xpcall(function()
+				for actorIndex, actorObject in Details:GetCurrentCombat():GetContainer(DETAILS_ATTRIBUTE_DAMAGE):ListActors() do
+					local gearInfo = allPlayersGear and allPlayersGear[actorObject:Name()]
+					if (gearInfo) then
+						actorObject.ilvl = gearInfo.ilevel
+					end
+				end
+			end, geterrorhandler())
+			
+			if (not status) then
+				Details:Msg("ilvl error:", status)
+			end
+		end
+
+		if not detailsFramework.IsAddonApocalypseWow() then
+			Details:SendEvent("COMBAT_ENCOUNTER_END", nil, ...)
+			Details222.Cache.ClearAugmentationCache()
+			Details:Destroy(Details.encounter_table)
+
+			Details:Destroy(dk_pets_cache.army)
+			Details:Destroy(dk_pets_cache.apoc)
+			Details:Destroy(empower_cache)
+		end
 
 		return true
 	end
 
-	function Details.parser_functions:UNIT_PET(...)
-		Details.container_pets:Unpet(...)
+	function Details.parser_functions:UNIT_PET(unitId) --unitId is a secret
+		if detailsFramework.IsAddonApocalypseWow() then
+			return
+		end
+		petContainer.UNIT_PET(unitId)
 		Details:SchedulePetUpdate(1)
 	end
 
@@ -5563,6 +5838,122 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			end
 		end)
 
+		if (detailsFramework.ExpansionHasEvoker()) then
+			if (IsInRaid()) then
+				--check if there is only one bombardment evoker in the group
+				local evokerCount = 0
+				local evokerName = ""
+				local evokerSerial = ""
+				--get the open raid lib
+				local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+				for i = 1, #Details222.UnitIdCache.Raid do
+					local unitId = Details222.UnitIdCache.Raid[i]
+					if (UnitExists(unitId)) then
+						local unitName = GetUnitName(unitId, true)
+						local unitInfo = openRaidLib.GetUnitInfo(unitId)
+						local unitClass = select(2, UnitClass(unitName))
+						if (unitClass == "EVOKER") then
+							if (unitInfo and unitInfo.specId and unitInfo.specId ~= 1468) then
+								evokerCount = evokerCount + 1
+								evokerName = unitName
+								evokerSerial = UnitGUID(unitId)
+							else
+								evokerCount = evokerCount + 1
+								evokerName = unitName
+								evokerSerial = UnitGUID(unitId)
+							end
+						end
+					else
+						break
+					end
+				end
+
+				if (evokerCount == 1) then
+					--this combat can reatribute bombardments
+					bombardment_stuff.only_one_scalecomander = true
+					bombardment_stuff.evoker_name = evokerName
+					bombardment_stuff.serial = evokerSerial
+					--print("only one scaler commander found, yoinking bombardments damage for:", bombardment_stuff.evoker_name)
+				else
+					bombardment_stuff.only_one_scalecomander = false
+					bombardment_stuff.evoker_name = ""
+					bombardment_stuff.serial = ""
+				end
+
+			elseif (IsInGroup()) then
+				local evokerCount = 0
+				local evokerName = ""
+				local evokerSerial = ""
+				--get the open raid lib
+				local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+				for i = 1, #Details222.UnitIdCache.Party do
+					local unitId = Details222.UnitIdCache.Party[i]
+					if (UnitExists(unitId)) then
+						local unitName = GetUnitName(unitId, true)
+						local unitInfo = openRaidLib.GetUnitInfo(unitId)
+						local unitClass = select(2, UnitClass(unitName))
+						if (unitClass == "EVOKER") then
+							if (unitInfo and unitInfo.specId and unitInfo.specId ~= 1468) then
+								evokerCount = evokerCount + 1
+								evokerName = unitName
+								evokerSerial = UnitGUID(unitId)
+							else
+								evokerCount = evokerCount + 1
+								evokerName = unitName
+								evokerSerial = UnitGUID(unitId)
+							end
+						end
+					end
+				end
+
+				if (evokerCount == 1) then
+					--this combat can reatribute bombardments
+					bombardment_stuff.only_one_scalecomander = true
+					bombardment_stuff.evoker_name = evokerName
+					bombardment_stuff.serial = evokerSerial
+					--print("only one scaler commander found, yoinking bombardments damage for:", bombardment_stuff.evoker_name)
+				else
+					bombardment_stuff.only_one_scalecomander = false
+					bombardment_stuff.evoker_name = ""
+					bombardment_stuff.serial = ""
+				end
+			else
+				local evokerCount = 0
+				local evokerName = ""
+				local evokerSerial = ""
+				local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+
+				local unitName = GetUnitName("player", true)
+				local unitInfo = openRaidLib.GetUnitInfo("player")
+				local unitClass = select(2, UnitClass(unitName))
+				if unitClass == "EVOKER" then
+					if unitInfo and unitInfo.specId and unitInfo.specId ~= 1468 then
+						evokerCount = evokerCount + 1
+						evokerName = unitName
+						evokerSerial = UnitGUID("player")
+					else
+						evokerCount = evokerCount + 1
+						evokerName = unitName
+						evokerSerial = UnitGUID("player")
+					end
+				end
+
+				if evokerCount == 1 then
+					--this combat can reatribute bombardments
+					bombardment_stuff.only_one_scalecomander = true
+					bombardment_stuff.evoker_name = evokerName
+					bombardment_stuff.serial = evokerSerial
+					--print("only one scaler commander found, yoinking bombardments damage for:", bombardment_stuff.evoker_name)
+				else
+					bombardment_stuff.only_one_scalecomander = false
+					bombardment_stuff.evoker_name = ""
+					bombardment_stuff.serial = ""
+				end
+			end
+		end
+
+		table.wipe(interruptOverlapCache)
+
 		if (Details.auto_swap_to_dynamic_overall) then
 			Details:InstanceCall(autoSwapDynamicOverallData, true)
 		end
@@ -5576,11 +5967,11 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			if (_in_combat) then
 				Details:SairDoCombate()
 			end
-			Details:EntrarEmCombate()
+			Details222.StartCombat()
 		end
 
 		if (not Details:CaptureGet("damage")) then
-			Details:EntrarEmCombate()
+			Details222.StartCombat()
 		end
 
 		--essa parte do solo mode ainda sera usada?
@@ -5625,7 +6016,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 			elseif (IsInGroup()) then
 				local unitIdCache = Details222.UnitIdCache.Party
-				for i = 1, 4 do
+				for i = 1, 5 do
 					local unitId = unitIdCache[i]
 					local guid = UnitGUID(unitId)
 					if (guid) then
@@ -5696,12 +6087,8 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	--can also run when the player leaves combat state (regen enabled)
 	function Details:RunScheduledEventsAfterCombat(OnRegenEnabled)
 		if (Details.debug) then
-			Details:Msg("(debug) running scheduled events after combat end.")
+			--Details:Msg("(debug) running scheduled events after combat end.")
 		end
-
-		TBC_JudgementOfLightCache = {
-			_damageCache = {}
-		}
 
 		--when the user requested data from the storage but is in combat lockdown
 		if (Details.schedule_storage_load) then
@@ -5758,59 +6145,234 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 	end
 
-	function Details.parser_functions:CHALLENGE_MODE_START(...)
-		--send mythic dungeon start event
-		if (Details.debug) then
-			print("parser event", "CHALLENGE_MODE_START", ...)
+	function Details.parser_functions:CHALLENGE_MODE_END(...) --doesn't exists
+		Details:Msg("CHALLENGE_MODE_END", GetTime())
+	end
+
+	local startMythicPlusRun = function()
+		if (DetailsMythicPlusFrame.ZoneLeftTimer and not DetailsMythicPlusFrame.ZoneLeftTimer:IsCancelled()) then
+			DetailsMythicPlusFrame.ZoneLeftTimer:Cancel()
 		end
 
 		local zoneName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceMapID, instanceGroupSize = GetInstanceInfo()
 		if (difficultyID == 8) then
+			Details.challengeModeMapId = C_ChallengeMode.GetActiveChallengeMapID()
+
+			Details222.MythicPlus.CHALLENGE_MODE_START_AT = GetTime()
+			Details222.MythicPlus.RUN_START_AT = time()
+			Details222.MythicPlus.WorldStateTimerEndAt = nil
+
+			local activeKeystoneLevel, activeAffixIDs, wasActiveKeystoneCharged = C_ChallengeMode.GetActiveKeystoneInfo and C_ChallengeMode.GetActiveKeystoneInfo()
+			Details222.MythicPlus.Level = activeKeystoneLevel or 2
+
 			Details:SendEvent("COMBAT_MYTHICDUNGEON_START")
+			Details222.MythicPlus.WorldStateTimerStartAt = time()
+
+			--debug auras
+			Details222.MythicPlus.debug_auras = {}
 		end
 	end
 
-	function Details.parser_functions:CHALLENGE_MODE_COMPLETED(...)
+	--challenge mode start is triggered when the loading screen is done
+	function Details.parser_functions:CHALLENGE_MODE_START(...) --~challenge ~mythic+ ~m+
+		--send mythic dungeon start event
+		if (Details.debug) then
+		end
+
+		Details222.MythicPlus.LogStep("CHALLENGE_MODE_START, starting 10 seconds timer.")
+		detailsFramework.Schedules.NewTimer (10, function()
+			Details222.MythicPlus.LogStep("CHALLENGE_MODE_START timer ended, starting the dungeon.")
+			startMythicPlusRun()
+		end)
+
+		local zoneName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceMapID, instanceGroupSize = GetInstanceInfo()
+		if (difficultyID == 8) then
+			Details222.MythicPlus.CHALLENGE_MODE_START_AT = GetTime()
+			Details222.MythicPlus.WorldStateTimerStartAt = nil
+			Details222.MythicPlus.WorldStateTimerEndAt = nil
+			Details222.MythicPlus.LogStep("Event: CHALLENGE_MODE_START")
+
+			local activeKeystoneLevel, activeAffixIDs, wasActiveKeystoneCharged = C_ChallengeMode.GetActiveKeystoneInfo and C_ChallengeMode.GetActiveKeystoneInfo()
+			Details222.MythicPlus.Level = activeKeystoneLevel or 2
+
+			Details.challengeModeMapId = C_ChallengeMode.GetActiveChallengeMapID()
+
+			Details222.MythicPlus.debug_auras = {}
+		end
+	end
+
+	local keystoneLevels = {}
+	local playerRatings = {}
+	Details.KeystoneLevels = keystoneLevels
+	Details.PlayerRatings = playerRatings
+	--save the keystone and rating level for each of the 5 party members
+
+	local saveGroupMembersKeystoneAndRatingLevel = function()
+		wipe(keystoneLevels)
+		local libOpenRaid = LibStub("LibOpenRaid-1.0", true)
+
+		if (libOpenRaid) then
+			for i = 1, GetNumGroupMembers()-1 do
+				local unitId = "party" .. i
+				if (UnitExists(unitId)) then
+					local unitKeystoneInfo = libOpenRaid.GetKeystoneInfo(unitId)
+					if (unitKeystoneInfo) then
+						local unitName = Details:GetFullName(unitId)
+						keystoneLevels[unitName] = unitKeystoneInfo.level
+						playerRatings[unitName] = unitKeystoneInfo.rating
+					end
+				end
+			end
+
+			local unitId = "player"
+			if (UnitExists(unitId)) then
+				local unitKeystoneInfo = libOpenRaid.GetKeystoneInfo(unitId)
+				if (unitKeystoneInfo) then
+					local unitName = Details:GetFullName(unitId)
+					keystoneLevels[unitName] = unitKeystoneInfo.level
+					playerRatings[unitName] = unitKeystoneInfo.rating
+				end
+			end
+		end
+	end
+
+	function Details222.CacheKeystoneForAllGroupMembers()
+		local _, instanceType, difficultyID = GetInstanceInfo()
+		if (instanceType == "party") then
+			saveGroupMembersKeystoneAndRatingLevel()
+		end
+	end
+
+	function Details.parser_functions:CHALLENGE_MODE_COMPLETED(...) --~complete ~finish ~mythic ~m+
+		Details222.MythicPlus.WorldStateTimerEndAt = time()
+
+		--wait until the keystone is updated and send it to the party
+		saveGroupMembersKeystoneAndRatingLevel()
+
+		local completionInfo = C_ChallengeMode.GetChallengeCompletionInfo()
+
+		local primaryAffix = 0
+		local mapID = completionInfo.mapChallengeModeID or Details.challengeModeMapId or C_ChallengeMode.GetActiveChallengeMapID()
+		local upgradeMembers = completionInfo.members
+		local level = completionInfo.level
+		local completionTime = completionInfo.time
+		local onTime = completionInfo.onTime
+		local keystoneUpgradeLevels = completionInfo.keystoneUpgradeLevels
+		local practiceRun = completionInfo.practiceRun
+		local isAffixRecord = completionInfo.isAffixRecord
+		local isMapRecord = completionInfo.isMapRecord
+		local isEligibleForScore = completionInfo.isEligibleForScore
+		local oldDungeonScore = completionInfo.oldOverallDungeonScore
+		local newDungeonScore = completionInfo.newOverallDungeonScore
+
+		Details222.MythicPlus.MapID = mapID
+		Details222.MythicPlus.Level = level --level of the key just finished
+		Details222.MythicPlus.ElapsedTime = completionTime --total time of the mythic+ run
+		Details222.MythicPlus.OnTime = onTime
+		Details222.MythicPlus.KeystoneUpgradeLevels = keystoneUpgradeLevels
+		Details222.MythicPlus.PracticeRun = practiceRun
+		Details222.MythicPlus.OldDungeonScore = oldDungeonScore
+		Details222.MythicPlus.NewDungeonScore = newDungeonScore
+		Details222.MythicPlus.IsAffixRecord = isAffixRecord
+		Details222.MythicPlus.IsMapRecord = isMapRecord
+		Details222.MythicPlus.PrimaryAffix = primaryAffix
+		Details222.MythicPlus.IsEligibleForScore = isEligibleForScore
+		Details222.MythicPlus.UpgradeMembers = upgradeMembers
+		Details222.MythicPlus.RUN_END_AT = time()
+
+		local dungeonName, id, timeLimit, texture, backgroundTexture, instanceMapId = C_ChallengeMode.GetMapUIInfo(mapID)
+
+		Details222.MythicPlus.DungeonName = dungeonName
+		Details222.MythicPlus.DungeonID = id
+		Details222.MythicPlus.TimeLimit = timeLimit
+		Details222.MythicPlus.Texture = texture
+		Details222.MythicPlus.BackgroundTexture = backgroundTexture
+		Details222.MythicPlus.InstanceMapID = instanceMapId
+
+		--store the data of the mythic+ run that just finished, this table always exists when COMBAT_MYTHICDUNGEON_END is triggered
+		Details.LastMythicPlusData = {
+			MapID = mapID,
+			Level = level,
+			ElapsedTime = completionTime or 0.1,
+			TimeWithoutDeaths = completionTime or 0.1,
+			OnTime = onTime,
+			KeystoneUpgradeLevels = keystoneUpgradeLevels,
+			PracticeRun = practiceRun,
+			IsAffixRecord = isAffixRecord,
+			IsMapRecord = isMapRecord,
+			PrimaryAffix = primaryAffix,
+			IsEligibleForScore = isEligibleForScore,
+			UpgradeMembers = upgradeMembers,
+			OldDungeonScore = oldDungeonScore,
+			NewDungeonScore = newDungeonScore,
+			DungeonName = dungeonName,
+			DungeonId = id,
+			TimeLimit = timeLimit,
+			Texture = texture,
+			BackgroundTexture = backgroundTexture,
+			StartTime = Details222.MythicPlus.RUN_START_AT,
+			EndTime = Details222.MythicPlus.RUN_END_AT,
+			time = completionTime or 0.1,
+		}
+
+		if (completionTime) then
+            --Subtract death time from time of run to get the true time
+            local deaths = C_ChallengeMode.GetDeathCount and C_ChallengeMode.GetDeathCount()
+            if deaths and deaths > 0 then
+                local secondsPerDeath = 5
+                if level >= 7 then
+                    secondsPerDeath = 15
+                end
+
+				completionTime = completionTime - deaths * (secondsPerDeath * 1000)
+            end
+
+        	Details222.MythicPlus.time = math.floor(completionTime / 1000)
+			Details.LastMythicPlusData.TimeWithoutDeaths = Details222.MythicPlus.time
+			Details:Msg("run elapsed time:", DetailsFramework:IntegerToTimer(completionTime / 1000))
+		else
+			Details222.MythicPlus.time = 0.1
+		end
+
+		if (Details.mythic_plus.show_damage_graphic) then
+			C_Timer.After(0, function()
+				--if (ChallengeModeCompleteBanner) then
+				--	ChallengeModeCompleteBanner.timeToHold = 0.01
+				--end
+			end)
+		end
+
 		--send mythic dungeon end event
 		local zoneName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceMapID, instanceGroupSize = GetInstanceInfo()
 		if (difficultyID == 8) then
 			Details:SendEvent("COMBAT_MYTHICDUNGEON_END")
 		end
 
-		local okay, errorText = pcall(function()
-			local mapChallengeModeID, mythicLevel, time, onTime, keystoneUpgradeLevels, practiceRun, oldOverallDungeonScore, newOverallDungeonScore, IsMapRecord, IsAffixRecord, PrimaryAffix, isEligibleForScore, members = C_ChallengeMode.GetCompletionInfo()
-			if (mapChallengeModeID) then
-				local statName = "mythicdungeoncompletedDF2"
-				local mythicDungeonRuns = Details222.PlayerStats:GetStat(statName)
-				mythicDungeonRuns = mythicDungeonRuns or {}
+		Details222.MythicPlus.LogStep("===== Mythic+ Finished =====")
+	end
 
-				mythicDungeonRuns[mapChallengeModeID] = mythicDungeonRuns[mapChallengeModeID] or {}
-				mythicDungeonRuns[mapChallengeModeID][mythicLevel] = mythicDungeonRuns[mapChallengeModeID][mythicLevel] or {}
+	---@param self frame
+	---@param bIsInCombat boolean
+	function Details.parser_functions:PLAYER_IN_COMBAT_CHANGED(bIsInCombat)
+		if (bIsInCombat) then
+			--or not, let me think.
+		else
 
-				local currentRun = mythicDungeonRuns[mapChallengeModeID][mythicLevel]
-				currentRun.completed = (currentRun.completed or 0) + 1
-				currentRun.totalTime = (currentRun.totalTime or 0) + time
-				if (not currentRun.minTime or time < currentRun.minTime) then
-					currentRun.minTime = time
-				end
-
-				currentRun.history = currentRun.history or {}
-				local day, month, year = tonumber(date("%d")), tonumber(date("%m")), tonumber(date("%Y"))
-				local amountDeaths = C_ChallengeMode.GetDeathCount() or 0
-				tinsert(currentRun.history, {day = day, month = month, year = year, runTime = time, onTime = onTime, deaths = amountDeaths, affix = PrimaryAffix})
-
-				Details222.PlayerStats:SetStat("mythicdungeoncompletedDF2", mythicDungeonRuns)
-			end
-		end)
-
-		if (not okay) then
-			Details:Msg("something went wrong (0x7878):", errorText)
 		end
 	end
 
 	function Details.parser_functions:PLAYER_REGEN_ENABLED(...)
-		if (Details.debug) then
-			Details:Msg("(debug) |cFFFFFF00PLAYER_REGEN_ENABLED|r event triggered.")
+
+		--check if the player is a rogue and has the aura Vanish
+		if (not IsInGroup() and not IsInRaid()) then
+			if (Details.playerclass == "ROGUE") then
+				--if the player has vanish aura, skip this check
+				---@type aurainfo
+				local auraInfo = C_UnitAuras.GetPlayerAuraBySpellID(11327)
+				if (auraInfo) then
+					return true
+				end
+			end
 		end
 
 		if (Details.auto_swap_to_dynamic_overall) then
@@ -5834,28 +6396,30 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			--is in a raid or party group
 			C_Timer.After(1, function()
 				if (IsInRaid()) then
-					local inCombat = false
+					local raidUnitIdCache = Details222.UnitIdCache.Raid
+					local bInCombat = false
 					for i = 1, GetNumGroupMembers() do
-						if (UnitAffectingCombat("raid" .. i)) then
-							inCombat = true
+						if (UnitAffectingCombat(raidUnitIdCache[i])) then
+							bInCombat = true
 							break
 						end
 					end
 
-					if (not inCombat) then
+					if (not bInCombat) then
 						Details:RunScheduledEventsAfterCombat(true)
 					end
 
 				elseif (IsInGroup()) then
-					local inCombat = false
-					for i = 1, GetNumGroupMembers() -1 do
-						if (UnitAffectingCombat("party" .. i)) then
-							inCombat = true
+					local bInCombat = false
+					local partyUnitIds = Details222.UnitIdCache.Party
+					for i = 1, #partyUnitIds do
+						if (UnitExists(partyUnitIds[i]) and UnitAffectingCombat(partyUnitIds[i])) then
+							bInCombat = true
 							break
 						end
 					end
 
-					if (not inCombat) then
+					if (not bInCombat) then
 						Details:RunScheduledEventsAfterCombat(true)
 					end
 				end
@@ -5906,6 +6470,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 	end
 
+	--[=[
 	--this is mostly triggered when the player enters in a dual against another player
 	function Details.parser_functions:UNIT_FACTION(unit)
 		if (true) then
@@ -5958,6 +6523,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			end
 		end
 	end
+	--]=]
 
 	function Details.parser_functions:ROLE_CHANGED_INFORM(...)
 		if (Details.last_assigned_role ~= _UnitGroupRolesAssigned("player")) then
@@ -5978,13 +6544,15 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	end
 
 	function Details.parser_functions:GROUP_ROSTER_UPDATE(...)
+		local bIsInGroup = IsInGroup() or IsInRaid()
+
 		if (not Details.in_group) then
-			Details.in_group = IsInGroup() or IsInRaid()
+			Details.in_group = bIsInGroup
 
 			if (Details.in_group) then
 				--player entered in a group, cleanup and set the new enviromnent
 				Details222.GarbageCollector.RestartInternalGarbageCollector(true)
-				Details:WipePets()
+				petContainer.Reset()
 				Details:SchedulePetUpdate(1)
 				Details:InstanceCall(Details.AdjustAlphaByContext)
 
@@ -5999,12 +6567,12 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			end
 
 		else
-			Details.in_group = IsInGroup() or IsInRaid()
+			Details.in_group = bIsInGroup
 
 			if (not Details.in_group) then
 				--player left the group, run routines to cleanup the environment
 				Details222.GarbageCollector.RestartInternalGarbageCollector(true)
-				Details:WipePets()
+				petContainer.Reset()
 				Details:SchedulePetUpdate(1)
 				Details:Destroy(Details.details_users)
 				Details:InstanceCall(Details.AdjustAlphaByContext)
@@ -6071,7 +6639,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 
 		Details.lastBattlegroundStartTime = GetTime()
-		Details:StartCombat()
+		Details222.StartCombat()
 
 		if (Details.debug) then
 			Details:Msg("(debug) a battleground has started.")
@@ -6101,10 +6669,12 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		local _, _, _, toc = GetBuildInfo()
 		if (toc >= 100200) then
-			Details.playername = UnitName("player") .. "-" .. (GetRealmName():gsub("%s", ''))
+			Details.playername = UnitName("player") .. "-" .. (GetRealmName():gsub("[%s-]", ''))
 		else
 			Details.playername = UnitName("player")
 		end
+
+		Details.playerclass = select(2, UnitClass("player"))
 
 		Details.playername = Details:Ambiguate(Details.playername)
 
@@ -6124,6 +6694,10 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		--load up data from savedvariables for the character
 		Details222.LoadSavedVariables.CharacterData()
+
+		if detailsFramework.IsAddonApocalypseWow() then
+			Details222.BParser.SetSessionCache(Details.damage_meter_sessions)
+		end
 
 		--load up data from saved variables for the account (shared among all the players' characters; this is not the Blizzard account, lol).
 		Details222.LoadSavedVariables.SharedData()
@@ -6156,7 +6730,8 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 	local playerLogin = CreateFrame("frame")
 	playerLogin:RegisterEvent("PLAYER_LOGIN")
 	playerLogin:SetScript("OnEvent", function()
-		Details:StartMeUp()
+		Details222.StartUp.StartMeUp()
+		crowdControlSpells = Details.CrowdControlSpellIdsCache
 	end)
 
 	function Details.parser_functions:PET_BATTLE_OPENING_START(...)
@@ -6183,7 +6758,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		end
 	end
 
-	function Details.parser_functions:UNIT_NAME_UPDATE(...)
+	function Details.parser_functions:UNIT_NAME_UPDATE(unitId)
 		Details:SchedulePetUpdate(5)
 	end
 
@@ -6288,7 +6863,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			local writeLog = function()
 				_detalhes_global = _detalhes_global or {}
 				tinsert(_detalhes_global.exit_errors, 1, currentStep .. " | " .. Details222.Date.GetDateForLogs() .. " | " .. Details.GetVersionString() .. " | " .. errortext .. " | " .. debugstack())
-				tremove(_detalhes_global.exit_errors, exitErrorsMaxSize)
+				table.remove(_detalhes_global.exit_errors, exitErrorsMaxSize)
 				addToExitErrors(currentStep .. " | " .. Details222.Date.GetDateForLogs() .. " | " .. Details.GetVersionString() .. " | " .. errortext .. " | " .. debugstack())
 			end
 			xpcall(writeLog, addToExitErrors)
@@ -6322,7 +6897,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			xpcall(clearInstances, logSaverError)
 		else
 			tinsert(_detalhes_global.exit_errors, 1, "not _detalhes.tabela_instancias")
-			tremove(_detalhes_global.exit_errors, exitErrorsMaxSize)
+			table.remove(_detalhes_global.exit_errors, exitErrorsMaxSize)
 			addToExitErrors("not _detalhes.tabela_instancias | " .. Details.GetVersionString())
 		end
 
@@ -6377,35 +6952,109 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 	local eraNamedSpellsToID = {}
 
-	-- ~parserstart ~startparser ~cleu ~parser
-	Details.UnitNameCache = {}
-	function Details.OnParserEventRetail() --not in use - added on 2023.11.13
-		local time, token, hidding, sourceSerial, sourceName, sourceFlags, sourceFlags2, targetSerial, targetName, targetFlags, targetFlags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12 = CombatLogGetCurrentEventInfo()
+	function Details222.Parser.CountInterruptOverlaps()
+		for _, interruptCastsOnTarget in pairs(interruptOverlapCache) do
 
-		local func = token_list[token]
-		if (func) then
-			if (sourceName) then
-				if (Details.UnitNameCache[sourceName]) then
-					sourceName = Details.UnitNameCache[sourceName]
-				else
-					--detect if this is player by reading the flags
-					if (bitBand(sourceFlags, OBJECT_TYPE_PLAYER) ~= 0) then
-						sourceName = Ambiguate(sourceName, "none")
-						Details.UnitNameCache[sourceName] = sourceName
+			--store clusters of interrupts that was attempted on the same target within 1.5 seconds
+			--this is a table of tables, where each table is a cluster of interrupts
+			local interruptClusters = {}
+
+			--find interrupt casts casted on the same target within 1.5 seconds of each other
+			local index = 1
+			while (index < #interruptCastsOnTarget) do
+				---@type interrupt_overlap
+				local interruptAttempt = interruptCastsOnTarget[index]
+				local thisCluster = {interruptAttempt}
+				local lastIndex = index
+
+				for j = index+1, #interruptCastsOnTarget do --from the next interrupt to the end of the table
+					lastIndex = j
+					---@type interrupt_overlap
+					local nextInterruptAttempt = interruptCastsOnTarget[j]
+					if (detailsFramework.Math.IsNearlyEqual(interruptAttempt.time, nextInterruptAttempt.time, 1.5)) then
+						table.insert(thisCluster, nextInterruptAttempt)
 					else
-						Details.UnitNameCache[sourceName] = sourceName
+						break
 					end
+				end
+
+				index = lastIndex
+
+				if (#thisCluster > 1) then
+					--add the cluster to the list of clusters
+					table.insert(interruptClusters, thisCluster)
 				end
 			end
 
-			return func(nil, token, time, sourceSerial, sourceName, sourceFlags, targetSerial, targetName, targetFlags, targetFlags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
+			local currentCombat = Details:GetCurrentCombat()
+
+			for _, thisCluster in ipairs(interruptClusters) do
+				--iterate among the cluster and add a overlap if those interrupts without success
+				for i = 1, #thisCluster do
+					---@type interrupt_overlap
+					local interruptAttempt = thisCluster[i]
+
+					if (not interruptAttempt.interrupted) then
+						local sourceName = interruptAttempt.sourceName
+						local utilityActor = currentCombat:GetActor(4, sourceName) --utility container
+						if (utilityActor) then
+							utilityActor.interrupt_cast_overlap = (utilityActor.interrupt_cast_overlap or 0) + 1
+						end
+					end
+				end
+			end
 		end
 	end
 
-	function Details.OnParserEvent()
+	-- ~parserstart ~startparser ~cleu ~parser
+	function Details222.Parser.OnParserEvent()
 		local time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12 = CombatLogGetCurrentEventInfo()
-
 		local func = token_list[token]
+
+		if (func) then
+			return func(nil, token, time, who_serial, who_name, who_flags, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
+		end
+	end
+
+	function Details222.Parser.OnParserEventPVP()
+		local time, token, hidding, sourceGUID, sourceName, sourceFlags, sourceFlags2, targetGUID, targetName, targetFlags, targetFlags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12 = CombatLogGetCurrentEventInfo()
+		local func = token_list[token]
+
+		if (func) then
+			return func(nil, token, time, sourceGUID, sourceName, sourceFlags, targetGUID, targetName, targetFlags, targetFlags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
+		end
+	end
+
+	--[=[
+	local midnightEvents = function()
+		local eventList = {
+			"DAMAGE_METER_RESET",
+			"DAMAGE_METER_COMBAT_SESSION_UPDATED",
+		}
+	end
+	--]=]
+
+
+	--open world out of combat spell damage
+	local outofcombat_spell_damage = function(unused, token, time, whoGUID, whoName, whoFlags, targetGUID, targetName, targetFlags, targetFlags2, ...)
+		--identify if the attacker is a group member
+		local IS_GROUP_OBJECT 	= 	0x00000007
+		local bIsValidGroupMember = bitBand(whoFlags, IS_GROUP_OBJECT) ~= 0
+		if (bIsValidGroupMember) then
+			token_list[token](nil, token, time, whoGUID, whoName, whoFlags, targetGUID, targetName, targetFlags, targetFlags2, ...)
+		end
+	end
+
+	local out_of_combat_interresting_events = {
+		["SPELL_SUMMON"] = parser.summon,
+		["SWING_DAMAGE"] = outofcombat_spell_damage,
+		["SPELL_DAMAGE"] = outofcombat_spell_damage,
+	}
+
+	--OutOfCombat parser is only used in open world to avoid getting information from people that are outside of the group
+	function Details222.Parser.OnParserEventOutOfCombat()
+		local time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12 = CombatLogGetCurrentEventInfo()
+		local func = out_of_combat_interresting_events[token]
 		if (func) then
 			return func(nil, token, time, who_serial, who_name, who_flags, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
 		end
@@ -6417,166 +7066,15 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		if (not parserDebug[token]) then
 			parserDebug[token] = true
-			--print(token)
-		end
-
-		if ( spellId == 409632 ) then
-			--print(who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5)
-		elseif( spellId == 395160 )  then
-			--print(who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5)
-		end
-
-		if (token == "SPELL_DAMAGE") then
-			if (A13 ~= nil or unknown1 ~= nil or unknown2 ~= nil or unknown3 ~= nil or unknown4 ~= nil or unknown5) then
-				--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)
-			end
-			--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)
-
-			if (spellName == "Fate Mirror") then
-				--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)
-			end
-		end
-
-		if (token == "SPELL_AURA_APPLIED") then
-			--print(spellName)
-		end
-
-		--local func = token_list[token]
-		--if (func) then
-		--	return func(nil, token, time, who_serial, who_name, who_flags, target_serial, target_name, target_flags, target_flags2, spellId, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
-		--end
-
-		--[=[ getspellinfo
-			["1"] = "Spatial Paradox", buff
-			["3"] = 5199645,
-			["4"] = 0,
-			["5"] = 0,
-			["6"] = 100,
-			["7"] = 406789,
-			["8"] = 5199645,
-
-			["1"] = "Spatial Paradox", buff
-			["3"] = 5199645,
-			["4"] = 0,
-			["5"] = 0,
-			["6"] = 60,
-			["7"] = 406732,
-			["8"] = 5199645,
-
-			["1"] = "Ebon Might", --spell cast start
-			["3"] = 5061347,
-			["4"] = 1473,
-			["5"] = 0,
-			["6"] = 0,
-			["7"] = 395152,
-			["8"] = 5061347,
-		--]=]
-
-		if (sourceSerial == UnitGUID("player")) then
-			GLOB = GLOB or {}
-			--table.insert(GLOB, {time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18})
-			--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, A17, A18)
-		end
-
-		--two spells triggering _support
-		--404908,"Fate Mirror"
-		--395152,"Ebon Might"
-
-		--SPELL_DAMAGE_SUPPORT on spellId 395152 spellname "Ebon Might", only seens to exists in the offline version of the combat log
-
-		if (spellId == 395152) then --Ebon Might "cast start" and "buff applyed"
-			--print(time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, spellId, spellName, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, unknown1, unknown2, unknown3, unknown4, unknown5)
-		end
-
-		if (spellId == 409560) then --temporal would
-			local spellschool, auraType, amount = A3, A4, A5
-			print(time, token, spellName, sourceName, targetName, spellschool, auraType, amount, A6, A7, A8, A9, A10)
-		end
-
-		if (spellName == "Ebon Might") then
-			--6/30 14:19:19.299  SPELL_AURA_REMOVED,Player-5764-00018FF1,"Termøhead-Iridikron",0x518,0x0,Player-5764-0001977A,"Drgndeesnutz-Fyrakk",0x518,0x0,395152,"Ebon Might",0xc,BUFF
-			local spellschool, auraType, amount = A3, A4, A5
-			--print(token, spellName, sourceName, targetName, spellschool, auraType, amount, A6, A7, A8, A9, A10)
-		end
-
-		if (spellName == "Breath of Eons") then
-			--6/30 14:19:19.299  SPELL_AURA_REMOVED,Player-5764-00018FF1,"Termøhead-Iridikron",0x518,0x0,Player-5764-0001977A,"Drgndeesnutz-Fyrakk",0x518,0x0,395152,"Ebon Might",0xc,BUFF
-			local spellschool, auraType, amount = A3, A4, A5
-			print(time, token, spellName, sourceName, targetName, spellschool, auraType, amount, A6, A7, A8, A9, A10)
-		end
-
-		if (token == "SPELL_CAST_START") then
-			if (sourceSerial == UnitGUID("player")) then
-			--print(token, spellName, spellId)
-			end
-		end
-
-		--Prescience, Fate Mirror, Ebon Might, Breath of Eons, Shifting Sands
-
-		--offline cleu:
-		--6/30 14:25:28.988  SPELL_DAMAGE,Player-5764-0001609B,"Mikito-Fyrakk",0x518,0x0,Creature-0-5770-2444-8-198594-00009DF6EF,"Cleave Training Dummy",0x30a28,0x0,44425,"Arcane Barrage",0x40,0000000000000000,0000000000000000,0,0,0,0,0,0,-1,0,0,0,0.00,0.00,2112,0.0000,0,18252,18251,-1,64,0,0,0,nil,nil,nil
-		--6/30 14:25:28.988  SPELL_DAMAGE_SUPPORT,Player-5764-0001609B,"Mikito-Fyrakk",0x518,0x0,Creature-0-5770-2444-8-198594-00009DF6EF,"Cleave Training Dummy",0x30a28,0x0,395152,"Ebon Might",0xc,0000000000000000,0000000000000000,0,0,0,0,0,0,-1,0,0,0,0.00,0.00,2112,0.0000,0,2572,2571,-1,64,0,0,0,nil,nil,nil,Player-5764-0001FACE
-	end
-
-	function Details.OnParserEventClassicEra()
-		local time, token, hidding, who_serial, who_name, who_flags, who_flags2, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12 = CombatLogGetCurrentEventInfo()
-
-		local func = token_list[token]
-		if (func) then
-			if(eraNamedSpellsToID[token]) then
-				A1 = A2
-			end
-			return func(nil, token, time, who_serial, who_name, who_flags, target_serial, target_name, target_flags, target_flags2, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12)
 		end
 	end
 
-	if(isERA) then
-		eraNamedSpellsToID = {
-		["SPELL_PERIODIC_DAMAGE"] = true,
-		["SPELL_DAMAGE"] = true,
-		["SPELL_BUILDING_DAMAGE"] = true,
-		["DAMAGE_SHIELD"] = true,
-		["DAMAGE_SPLIT"] = true,
-		["SPELL_MISSED"] = true,
-		["SPELL_PERIODIC_MISSED"] = true,
-		["SPELL_BUILDING_MISSED"] = true,
-		["DAMAGE_SHIELD_MISSED"] = true,
-
-		["SPELL_HEAL"] = true,
-		["SPELL_PERIODIC_HEAL"] = true,
-		["SPELL_HEAL_ABSORBED"] = true,
-		["SPELL_ABSORBED"] = true,
-
-		["SPELL_AURA_APPLIED"] = true,
-		["SPELL_AURA_REMOVED"] = true,
-		["SPELL_AURA_REFRESH"] = true,
-		["SPELL_AURA_APPLIED_DOSE"] = true,
-		["SPELL_ENERGIZE"] = true,
-		["SPELL_PERIODIC_ENERGIZE"] = true,
-
-		["SPELL_CAST_SUCCESS"] = true,
-		["SPELL_DISPEL"] = true,
-		["SPELL_STOLEN"] = true,
-		["SPELL_AURA_BROKEN"] = true,
-		["SPELL_AURA_BROKEN_SPELL"] = true,
-		["SPELL_RESURRECT"] = true,
-		["SPELL_INTERRUPT"] = true,
-		}
-		Details.parser_frame:SetScript("OnEvent", Details.OnParserEventClassicEra)
-	else
-		if (false and "I'm debugging something") then
-			Details.parser_frame:SetScript("OnEvent", Details.OnParserEventDebug)
-		else
-			Details.parser_frame:SetScript("OnEvent", Details.OnParserEvent)
-		end
-	end
+	---~parser ~cleu ~parserevent
+	Details222.parser_frame:SetScript("OnEvent", Details222.Parser.OnParserEvent)
+	Details222.PFrame = Details222.parser_frame
 
 	function Details:UpdateParser()
 		_tempo = Details._tempo
-	end
-
-	function Details:UpdatePetsOnParser()
-		container_pets = Details.tabela_pets.pets
 	end
 
 	function Details:GetActorFromCache(value)
@@ -6594,39 +7092,39 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		for n, nn in pairs(damage_cache) do
 			amount = amount + 1
 		end
-		print("parser damage_cache", amount)
+		Details:Msg("parser damage_cache", amount)
 
 		amount = 0
 		for n, nn in pairs(damage_cache_pets) do
 			amount = amount + 1
 		end
-		print("parser damage_cache_pets", amount)
+		Details:Msg("parser damage_cache_pets", amount)
 
 		amount = 0
 		for n, nn in pairs(damage_cache_petsOwners) do
 			amount = amount + 1
 		end
-		print("parser damage_cache_petsOwners", amount)
+		Details:Msg("parser damage_cache_petsOwners", amount)
 
 		amount = 0
 		for n, nn in pairs(healing_cache) do
 			amount = amount + 1
 		end
-		print("parser healing_cache", amount)
+		Details:Msg("parser healing_cache", amount)
 
 		amount = 0
 		for n, nn in pairs(energy_cache) do
 			amount = amount + 1
 		end
-		print("parser energy_cache", amount)
+		Details:Msg("parser energy_cache", amount)
 
 		amount = 0
 		for n, nn in pairs(misc_cache) do
 			amount = amount + 1
 		end
-		print("parser misc_cache", amount)
-		print("group damage", #Details.cache_damage_group)
-		print("group damage", #Details.cache_healing_group)
+		Details:Msg("parser misc_cache", amount)
+		Details:Msg("group damage", #Details.cache_damage_group)
+		Details:Msg("group damage", #Details.cache_healing_group)
 	end
 
 	function Details:GetActorsOnDamageCache()
@@ -6637,14 +7135,17 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		return Details.cache_healing_group
 	end
 
+	--called when the zone type changes and ENCOUNTER_END event
 	function Details222.Cache.ClearAugmentationCache()
 		Details:Destroy(augmentation_cache.ebon_might) --~roskash
 		Details:Destroy(augmentation_cache.prescience)
 		Details:Destroy(augmentation_cache.shield)
 		Details:Destroy(augmentation_cache.infernobless)
 		Details:Destroy(augmentation_cache.breath_targets)
+		Details:Destroy(augmentation_cache.prescience_stacks)
 	end
 
+	--called when restaring the garbage collector, on some options change, at the end of a combat (before COMBAT_PLAYER_LEAVE and after COMBAT_PLAYER_LEAVING)
 	function Details:ClearParserCache(bIsFromCombatStart) --~wipe
 		Details:Destroy(damage_cache)
 		Details:Destroy(damage_cache_pets)
@@ -6677,6 +7178,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			if (Details.zone_type ~= "party") then
 				Details:Destroy(augmentation_cache.ebon_might) --~roskash
 				Details:Destroy(augmentation_cache.prescience)
+				Details:Destroy(augmentation_cache.prescience_stacks)
 				Details:Destroy(augmentation_cache.shield)
 				Details:Destroy(augmentation_cache.infernobless)
 			end
@@ -6687,7 +7189,36 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		cacheAnything.track_hunter_frenzy = Details.combat_log.track_hunter_frenzy
 
 		if (Details.combat_log.merge_gemstones_1007) then
-			--ring powers merged, https://gist.github.com/ljosberinn/65abe150133ff3a08cd70f840f7dd019 (by Gerrit Alex - WCL)
+			--11.0.7 | 468666 = "Cyrce's Circlet"
+			override_spellId[462526] = 468666 --Roaring War-Queen's Citrine
+			override_spellId[462527] = 468666 --Seabed Leviathan's Citrine
+			override_spellId[462528] = 468666 --Legendary Skipper's Citrine
+			override_spellId[462530] = 468666 --Mariner's Hallowed Citrine
+			override_spellId[462531] = 468666 --Old Salt's Bardic Citrine
+			override_spellId[462532] = 468666 --Storm Sewer's Citrine
+			override_spellId[462534] = 468666 --Windsinger's Runed Citrine
+			override_spellId[462535] = 468666 --Fathomdweller's Runed Citrine
+			override_spellId[462536] = 468666 --Stormbringer's Runed Citrine
+			override_spellId[462538] = 468666 --Undersea Overseer's Citrine
+			override_spellId[462539] = 468666 --Squall Sailor's Citrine
+			override_spellId[462540] = 468666 --Thunderlord's Crackling Citrine
+			override_spellId[462951] = 468666 --Thunderlord's Crackling Citrine
+			override_spellId[462952] = 468666 --Squall Sailor's Citrine
+			override_spellId[462953] = 468666 --Undersea Overseer's Citrine
+			override_spellId[462958] = 468666 --Storm Sewer's Citrine
+			override_spellId[462959] = 468666 --Old Salt's Bardic Citrine
+			override_spellId[462960] = 468666 --Mariner's Hallowed Citrine
+			override_spellId[462962] = 468666 --Legendary Skipper's Citrine
+			override_spellId[462963] = 468666 --Seabed Leviathan's Citrine
+			override_spellId[462964] = 468666 --Roaring War-Queen's Citrine
+			override_spellId[465961] = 468666 --Stormbringer's Runed Citrine
+			override_spellId[465962] = 468666 --Fathomdweller's Runed Citrine
+			override_spellId[465963] = 468666 --Windsinger's Runed Citrine
+			override_spellId[468422] = 468666 --Storm Sewer's Citrine
+			override_spellId[468990] = 468666 --Seabed Leviathan's Citrine
+			override_spellId[469397] = 468666 --Roaring War-Queen's Citrine
+			override_spellId[470821] = 468666 --Pluck Out Singing Citrine
+			--10.0.7 ring powers merged, https://gist.github.com/ljosberinn/65abe150133ff3a08cd70f840f7dd019 (by Gerrit Alex - WCL)
 			override_spellId[403225] = 404884 --Flame Licked Stone
 			override_spellId[404974] = 404884 --Shining Obsidian Stone
 			override_spellId[405220] = 404884 --Pestilent Plague Stone
@@ -6709,6 +7240,36 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			override_spellId[403253] = 404884 --Raging Magma Stone
 			override_spellId[403257] = 404884 --Searing Smokey Stone
 		else
+			--11.0.7
+			override_spellId[462526] = nil --Roaring War-Queen's Citrine
+			override_spellId[462527] = nil --Seabed Leviathan's Citrine
+			override_spellId[462528] = nil --Legendary Skipper's Citrine
+			override_spellId[462530] = nil --Mariner's Hallowed Citrine
+			override_spellId[462531] = nil --Old Salt's Bardic Citrine
+			override_spellId[462532] = nil --Storm Sewer's Citrine
+			override_spellId[462534] = nil --Windsinger's Runed Citrine
+			override_spellId[462535] = nil --Fathomdweller's Runed Citrine
+			override_spellId[462536] = nil --Stormbringer's Runed Citrine
+			override_spellId[462538] = nil --Undersea Overseer's Citrine
+			override_spellId[462539] = nil --Squall Sailor's Citrine
+			override_spellId[462540] = nil --Thunderlord's Crackling Citrine
+			override_spellId[462951] = nil --Thunderlord's Crackling Citrine
+			override_spellId[462952] = nil --Squall Sailor's Citrine
+			override_spellId[462953] = nil --Undersea Overseer's Citrine
+			override_spellId[462958] = nil --Storm Sewer's Citrine
+			override_spellId[462959] = nil --Old Salt's Bardic Citrine
+			override_spellId[462960] = nil --Mariner's Hallowed Citrine
+			override_spellId[462962] = nil --Legendary Skipper's Citrine
+			override_spellId[462963] = nil --Seabed Leviathan's Citrine
+			override_spellId[462964] = nil --Roaring War-Queen's Citrine
+			override_spellId[465961] = nil --Stormbringer's Runed Citrine
+			override_spellId[465962] = nil --Fathomdweller's Runed Citrine
+			override_spellId[465963] = nil --Windsinger's Runed Citrine
+			override_spellId[468422] = nil --Storm Sewer's Citrine
+			override_spellId[468990] = nil --Seabed Leviathan's Citrine
+			override_spellId[469397] = nil --Roaring War-Queen's Citrine
+			override_spellId[470821] = nil --Pluck Out Singing Citrine
+			--10.0.7
 			override_spellId[403225] = nil --Flame Licked Stone
 			override_spellId[404974] = nil --Shining Obsidian Stone
 			override_spellId[405220] = nil --Pestilent Plague Stone
@@ -6788,10 +7349,19 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		Details:Destroy(bitfield_swap_cache)
 		Details:Destroy(empower_cache)
 
-		local groupRoster = Details.tabela_vigente.raid_roster
+		local currentCombat = Details:GetCurrentCombat()
+
+		local groupRoster = currentCombat.raid_roster
 
 		if (IsInRaid()) then
 			local unitIdCache = Details222.UnitIdCache.Raid
+
+			Details:Destroy(Details.HealthCache)
+			Details:Destroy(Details.HealthMaxCache)
+			Details.HealthMaxCalls = 0
+			local max = math.max
+			local UnitHealth = UnitHealth
+			local UnitHealthMax = UnitHealthMax
 
 			for i = 1, GetNumGroupMembers() do
 				local unitId = unitIdCache[i]
@@ -6813,11 +7383,14 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				if (auto_regen_power_specs[Details.cached_specs[unitGUID]]) then
 					auto_regen_cache[unitName] = auto_regen_power_specs[Details.cached_specs[unitGUID]]
 				end
+
+				Details.HealthCache[unitGUID] = UnitHealth(unitId)
+				Details.HealthMaxCache[unitGUID] = max(UnitHealthMax(unitId), SMALL_FLOAT)
 			end
 
 		elseif (IsInGroup()) then
 			local unitIdCache = Details222.UnitIdCache.Party
-			for i = 1, GetNumGroupMembers()-1 do
+			for i = 1, GetNumGroupMembers() do
 				local unitId = unitIdCache[i]
 
 				local unitName = GetUnitName(unitId, true)
@@ -6834,6 +7407,9 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				if (auto_regen_power_specs[Details.cached_specs[unitGUID]]) then
 					auto_regen_cache[unitName] = auto_regen_power_specs[Details.cached_specs[unitGUID]]
 				end
+
+				Details.HealthCache[unitGUID] = UnitHealth(unitId)
+				Details.HealthMaxCache[unitGUID] = max(UnitHealthMax(unitId), SMALL_FLOAT)
 			end
 
 			--player
@@ -6851,6 +7427,9 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			if (auto_regen_power_specs[Details.cached_specs[playerGUID]]) then
 				auto_regen_cache[playerName] = auto_regen_power_specs[Details.cached_specs[playerGUID]]
 			end
+
+			Details.HealthCache[playerGUID] = UnitHealth("player")
+			Details.HealthMaxCache[playerGUID] = max(UnitHealthMax("player"), SMALL_FLOAT)
 		else
 			local playerName = Details.playername
 			local playerGUID = UnitGUID("player")
@@ -6864,8 +7443,10 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			else
 				local spec = detailsFramework.GetSpecialization()
 				if (spec and spec ~= 0) then
-					if (detailsFramework.GetSpecializationRole (spec) == "TANK") then
-						tanks_members_cache[playerGUID] = true
+					if not detailsFramework.IsTBCWow() then
+						if (detailsFramework.GetSpecializationRole (spec) == "TANK") then
+							tanks_members_cache[playerGUID] = true
+						end
 					end
 				end
 			end
@@ -6873,20 +7454,23 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 			if (auto_regen_power_specs[Details.cached_specs[playerGUID]]) then
 				auto_regen_cache[playerName] = auto_regen_power_specs[Details.cached_specs[playerGUID]]
 			end
-		end
 
-		local orderNames = {}
-		for playerName in pairs(groupRoster) do
-			orderNames[#orderNames+1] = playerName
+			Details.HealthCache[playerGUID] = UnitHealth("player")
+			Details.HealthMaxCache[playerGUID] = max(UnitHealthMax("player"), SMALL_FLOAT)
 		end
-		table.sort(orderNames, function(name1, name2)
-			return string.len(name1) > string.len(name2)
-		end)
-		Details.tabela_vigente.raid_roster_indexed = orderNames
 
 		if (Details.iam_a_tank) then
 			tanks_members_cache[UnitGUID("player")] = true
 		end
+	end
+
+
+	---returns a table containing crowd control spells.
+	---the table maps spell names to a boolean value indicating whether the spell is a crowd control spell.
+	---@param self details
+	---@return table<spellid, boolean> crowdControlSpellsTable table of crowd control spells.
+	function Details:GetCrowdControlSpells()
+		return crowdControlSpells
 	end
 
 	---return true or false
@@ -6909,6 +7493,16 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		return raid_members_cache
 	end
 
+	function Details:SetDeathLogTemporaryLimit(limitAmount) --when the zone type changes, this is automatically called with value nil (remove the temp limit)
+		if (limitAmount and limitAmount > Details.deadlog_events) then
+			Details.temp_deathlog_limit = limitAmount
+			_amount_of_last_events = Details.temp_deathlog_limit or Details.deadlog_events
+		else
+			Details.temp_deathlog_limit = nil
+			_amount_of_last_events = Details.deadlog_events
+		end
+	end
+
 	--serach key: ~cache
 	function Details:UpdateParserGears(bIsFromCombatStart)
 		--refresh combat tables
@@ -6917,8 +7511,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		--last events pointer
 		last_events_cache = _current_combat.player_last_events
 		_amount_of_last_events = Details.deadlog_events
-
-		_use_shield_overheal = Details.parser_options.shield_overheal
+		_parser_options = Details.parser_options
 		shield_spellid_cache = Details.shield_spellid_cache
 
 		--refresh total containers
@@ -6937,6 +7530,8 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 		--_recording_took_damage = _detalhes.RecordRealTimeTookDamage
 		--_recording_ability_with_buffs = _detalhes.RecordPlayerAbilityWithBuffs --can be deprecated
 		_in_combat = Details.in_combat
+
+		crowdControlSpells = Details.CrowdControlSpellIdsCache
 
 		Details:Destroy(ignored_npcids)
 
@@ -6990,7 +7585,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		is_using_spellId_override = Details.override_spellids
 
-		return Details:ClearParserCache(bIsFromCombatStart)
+		Details:ClearParserCache(bIsFromCombatStart)
 	end
 
 	function Details.DumpIgnoredNpcs()
@@ -7155,13 +7750,13 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 
 		for i = 1, players do
 			local name, killingBlows, honorableKills, deaths, honorGained, faction, race, rank, class, classToken, damageDone, healingDone, bgRating, ratingChange, preMatchMMR, mmrChange, talentSpec
-			if (isWOTLK) then
+			if (isCLASSIC) then
 				name, killingBlows, honorableKills, deaths, honorGained, faction, rank, race, class, classToken, damageDone, healingDone, bgRating, ratingChange, preMatchMMR, mmrChange, talentSpec = GetBattlefieldScore(i)
 			else
 				name, killingBlows, honorableKills, deaths, honorGained, faction, race, class, classToken, damageDone, healingDone, bgRating, ratingChange, preMatchMMR, mmrChange, talentSpec = GetBattlefieldScore(i)
 			end
 
-			if (not isWOTLK and not isERA) then --Must be dragonflight
+			if (not isCLASSIC) then --Must be dragonflight
 				if (not name:match("%-")) then
 					name = name .. "-" .. realmName
 				end
@@ -7189,12 +7784,14 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 					end
 
 					actor = _current_damage_container:GetOrCreateActor (guid, name, flag, true)
-					actor.total = Details:GetOrderNumber()
-					actor.classe = classToken or "UNKNOW"
-
-					if (flag == 0x548) then
-						--oponent
-						actor.enemy = true
+					if (actor) then
+						actor.total = Details:GetOrderNumber()
+						actor.classe = classToken or "UNKNOW"
+						if (flag == 0x548) then
+							--oponent
+							actor.enemy = true
+						end
+						actor.made_by_pvpparser = true
 					end
 				end
 			end
@@ -7209,7 +7806,7 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 				actor.classe = classToken or "UNKNOW"
 
 			elseif (name ~= "Unknown" and type(name) == "string" and string.len(name) > 1) then
-				local guid = UnitGUID(Details:Ambiguate(name))
+				local guid = UnitGUID(name)
 				if (guid) then
 					local flag
 					if (Details.faction_id == faction) then --is from the same faction
@@ -7219,14 +7816,87 @@ local SPELL_POWER_PAIN = SPELL_POWER_PAIN or (PowerEnum and PowerEnum.Pain) or 1
 					end
 
 					actor = _current_heal_container:GetOrCreateActor (guid, name, flag, true)
-					actor.total = Details:GetOrderNumber()
-					actor.classe = classToken or "UNKNOW"
-
-					if (flag == 0x548) then
-						--oponent
-						actor.enemy = true
+					if (actor) then
+						actor.total = Details:GetOrderNumber()
+						actor.classe = classToken or "UNKNOW"
+						if (flag == 0x548) then
+							--oponent
+							actor.enemy = true
+						end
+						actor.made_by_pvpparser = true
 					end
 				end
 			end
 		end
 	end
+
+--[=
+local detailsParserDebugFrame = CreateFrame("frame", "DetailsParserDebugFrame", UIParent)
+detailsParserDebugFrame:SetSize(100, 200)
+DetailsFramework:ApplyStandardBackdrop(detailsParserDebugFrame)
+detailsParserDebugFrame:SetPoint("left", UIParent, "left", 2, 350)
+detailsParserDebugFrame.AllIcons = {}
+detailsParserDebugFrame.AllTexts = {}
+local iconSize = 40
+
+detailsParserDebugFrame:Hide()
+
+local spellIcon1 = detailsParserDebugFrame:CreateTexture(nil, "overlay")
+spellIcon1:SetSize(iconSize, iconSize)
+spellIcon1:SetPoint("topleft", detailsParserDebugFrame, "topleft", 2, -5)
+local text1 = detailsParserDebugFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+text1:SetPoint("left", spellIcon1, "right", 2, 0)
+
+local spellIcon2 = detailsParserDebugFrame:CreateTexture(nil, "overlay")
+spellIcon2:SetSize(iconSize, iconSize)
+spellIcon2:SetPoint("topleft", spellIcon1, "bottomleft", 0, -2)
+local text2 = detailsParserDebugFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+text2:SetPoint("left", spellIcon2, "right", 2, 0)
+
+local spellIcon3 = detailsParserDebugFrame:CreateTexture(nil, "overlay")
+spellIcon3:SetSize(iconSize, iconSize)
+spellIcon3:SetPoint("topleft", spellIcon2, "bottomleft", 0, -2)
+local text3 = detailsParserDebugFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+text3:SetPoint("left", spellIcon3, "right", 2, 0)
+
+local spellIcon4 = detailsParserDebugFrame:CreateTexture(nil, "overlay")
+spellIcon4:SetSize(iconSize, iconSize)
+spellIcon4:SetPoint("topleft", spellIcon3, "bottomleft", 0, -2)
+local text4 = detailsParserDebugFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+text4:SetPoint("left", spellIcon4, "right", 2, 0)
+
+local spellIcon5 = detailsParserDebugFrame:CreateTexture(nil, "overlay")
+spellIcon5:SetSize(iconSize, iconSize)
+spellIcon5:SetPoint("topleft", spellIcon4, "bottomleft", 0, -2)
+local text5 = detailsParserDebugFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+text5:SetPoint("left", spellIcon5, "right", 2, 0)
+
+tinsert(detailsParserDebugFrame.AllIcons, spellIcon1)
+tinsert(detailsParserDebugFrame.AllIcons, spellIcon2)
+tinsert(detailsParserDebugFrame.AllIcons, spellIcon3)
+tinsert(detailsParserDebugFrame.AllIcons, spellIcon4)
+tinsert(detailsParserDebugFrame.AllIcons, spellIcon5)
+
+tinsert(detailsParserDebugFrame.AllTexts, text1)
+tinsert(detailsParserDebugFrame.AllTexts, text2)
+tinsert(detailsParserDebugFrame.AllTexts, text3)
+tinsert(detailsParserDebugFrame.AllTexts, text4)
+tinsert(detailsParserDebugFrame.AllTexts, text5)
+
+function detailsParserDebugFrame:BlinkIcon(spellId, iconId)
+	local spellName, _, spellIcon = GetSpellInfo(spellId)
+	local icon = self.AllIcons[iconId]
+
+	if (spellIcon) then
+		icon:SetTexture(spellIcon)
+		icon:Show()
+		C_Timer.After(1, function()
+			icon:Hide()
+		end)
+	end
+end
+--]=]
+
+--end
+
+

@@ -11,6 +11,7 @@ local UIParent = UIParent
 local UnitGUID = UnitGUID
 local tonumber= tonumber
 local LoggingCombat = LoggingCombat
+local GetSpellInfo = Details222.GetSpellInfo
 
 SLASH_PLAYEDCLASS1 = "/playedclass"
 function SlashCmdList.PLAYEDCLASS(msg, editbox)
@@ -25,6 +26,9 @@ function SlashCmdList.DUMPTABLE(msg, editbox)
 end
 
 SLASH_DETAILS1, SLASH_DETAILS2, SLASH_DETAILS3 = "/details", "/dt", "/de"
+
+---@type detailsframework
+local detailsFramework = DetailsFramework
 
 --lower case
 local lowerCase_SLASH_CHANGES = string.lower(Loc ["STRING_SLASH_CHANGES"])
@@ -115,12 +119,23 @@ function SlashCmdList.DETAILS (msg, editbox)
 		returnTable[#returnTable+1] = ""
 
 		returnTable[#returnTable+1] = "Callstack for Debug:"
-		local callStackTable = DetailsFramework:SplitTextInLines(callStack)
+		local callStackTable = detailsFramework:SplitTextInLines(callStack)
 		for i = 1, #callStackTable do
 			returnTable[#returnTable+1] = callStackTable[i]
 		end
 
 		dumpt(returnTable)
+
+	elseif (command == "mythic+") then
+		local statName = "mythicdungeoncompletedDF2"
+		local mythicDungeonRuns = Details222.PlayerStats:GetStat(statName)
+
+		dumpt(mythicDungeonRuns)
+
+		for mapChallengeModeID, mapChallengeModeData in pairs(mythicDungeonRuns) do
+			local mapName = C_ChallengeMode.GetMapUIInfo(mapChallengeModeID)
+			print(mapName, mapChallengeModeData.level, mapChallengeModeData.completed, mapChallengeModeData.time)
+		end
 
 	elseif (command == "mergepetspells") then --deprecated
 		Details.merge_pet_abilities = not Details.merge_pet_abilities
@@ -336,9 +351,9 @@ function SlashCmdList.DETAILS (msg, editbox)
 		texture:SetAllPoints()
 		texture:SetTexture("Interface\\1023.tga")
 
-		local A = DetailsFramework:CreateAnimationHub (texture)
+		local A = detailsFramework:CreateAnimationHub (texture)
 
-		local b = DetailsFramework:CreateAnimation(A, "ROTATION", 1, 40, 360)
+		local b = detailsFramework:CreateAnimation(A, "ROTATION", 1, 40, 360)
 		b:SetTarget (texture)
 		A:Play()
 
@@ -372,28 +387,10 @@ function SlashCmdList.DETAILS (msg, editbox)
 		instance2.baseframe:SetPoint("bottomright", RightChatToggleButton, "topright", -1, 1)
 
 	elseif (msg == "pets") then
-		local petFrame = Details.PetFrame
-		if (not petFrame) then
-			petFrame = Details:CreateListPanel()
-			Details.PetFrame = petFrame
-		end
+		Details.DebugPets()
 
-		local i = 1
-		for k, v in pairs(Details.tabela_pets.pets) do
-			petFrame:add( k .. ": " ..  v[1] .. " | " .. v[2] .. " | " .. v[3] .. " | " .. v[6], i)
-			i = i + 1
-		end
-
-		petFrame:Show()
-
-	elseif (msg == "savepets") then
-		Details.tabela_vigente.saved_pets = {}
-
-		for k, v in pairs(Details.tabela_pets.pets) do
-			Details.tabela_vigente.saved_pets[k] = {v[1], v[2], v[3]}
-		end
-
-		Details:Msg("pet table has been saved on current combat.")
+	elseif (msg == "mypets") then
+		Details.DebugMyPets()
 
 	elseif (msg == "model") then
 		local frame = CreateFrame("PlayerModel");
@@ -482,17 +479,17 @@ function SlashCmdList.DETAILS (msg, editbox)
 		if (tooltipData) then
 			local spellId = tooltipData.id
 			local spellName = GetSpellInfo(spellId)
-			
+
 			if (spellName) then
-				
+
 				local itemLink = GetInventoryItemLink("player", 13)
 				if (itemLink) then
 					local itemName = GetItemInfo(itemLink)
 					if (itemName) then
 						local itemID, enchantID, gemID1, gemID2, gemID3, gemID4, suffixID, uniqueID, linkLevel, specializationID, modifiersMask, itemContext = select(2, strsplit(":", itemLink))
-						
+
 						itemID = tonumber(itemID)
-						
+
 						if (itemID) then
 							local s = "["..spellId.."] = {name = formatTextForItem("..itemID..")}, --trinket: ".. itemName
 							dumpt({s})
@@ -576,11 +573,6 @@ function SlashCmdList.DETAILS (msg, editbox)
 				end
 			end
 		end
-
-	elseif (msg == "teste") then
-
-		local a, b = Details:GetEncounterEnd (1098, 3)
-		print(a, unpack(b))
 
 	elseif (msg == "yesno") then
 		--_detalhes:Show()
@@ -770,6 +762,57 @@ function SlashCmdList.DETAILS (msg, editbox)
 			end
 		end
 
+	elseif (command == "spellid") then
+		if (Details222.FocusedSpellId) then
+			local npcId = Details222.FocusedSpellId
+			if (not Details.id_frame) then
+				local backdrop = {
+					bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+					edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
+					tile = true, edgeSize = 1, tileSize = 5,
+				}
+
+				Details.id_frame = CreateFrame("Frame", "DetailsID", UIParent, "BackdropTemplate")
+				Details.id_frame:SetHeight(14)
+				Details.id_frame:SetWidth(120)
+				Details.id_frame:SetPoint("center", UIParent, "center")
+				Details.id_frame:SetBackdrop(backdrop)
+
+				table.insert(UISpecialFrames, "DetailsID")
+
+				Details.id_frame.texto = CreateFrame("editbox", nil, Details.id_frame, "BackdropTemplate")
+				Details.id_frame.texto:SetPoint("topleft", Details.id_frame, "topleft")
+				Details.id_frame.texto:SetAutoFocus(false)
+				Details.id_frame.texto:SetFontObject(GameFontHighlightSmall)
+				Details.id_frame.texto:SetHeight(14)
+				Details.id_frame.texto:SetWidth(120)
+				Details.id_frame.texto:SetJustifyH("CENTER")
+				Details.id_frame.texto:EnableMouse(true)
+				Details.id_frame.texto:SetBackdropColor(0, 0, 0, 0.5)
+				Details.id_frame.texto:SetBackdropBorderColor(0.3, 0.3, 0.30, 0.80)
+				Details.id_frame.texto:SetText("")
+				Details.id_frame.texto.perdeu_foco = nil
+
+				Details.id_frame.texto:SetScript("OnEnterPressed", function()
+					Details.id_frame.texto:ClearFocus()
+					Details.id_frame:Hide()
+				end)
+
+				Details.id_frame.texto:SetScript("OnEscapePressed", function()
+					Details.id_frame.texto:ClearFocus()
+					Details.id_frame:Hide()
+				end)
+
+			end
+
+			C_Timer.After(0.1, function()
+				Details.id_frame:Show()
+				Details.id_frame.texto:SetFocus()
+				Details.id_frame.texto:SetText("" .. npcId)
+				Details.id_frame.texto:HighlightText()
+			end)
+		end
+
 	elseif (command == "profile") then
 
 		local profile = rest:match("^(%S*)%s*(.-)$")
@@ -866,6 +909,168 @@ function SlashCmdList.DETAILS (msg, editbox)
 		print("running... this is a debug command, details wont work until next /reload.")
 		Details:PrepareTablesForSave()
 
+	elseif (command == "bossspells") then
+		local one, two = rest:match("^(%S*)%s*(.-)$")
+
+		if (not one or one == "") then
+			print("Use: /details bossspells [boss name]. Example: '/details bossspells Dimen' or '/details bossspells the soul' -> Dimensius and The Soul Hunters.")
+			return
+		end
+
+		one = one:lower()
+		if (two and two ~= "") then
+			two = two:lower()
+		else
+			two = nil
+		end
+
+		local df = DetailsFramework
+		local allRaids = df.Ejc.GetAllRaidInstances()
+
+		local foundBoss = false
+
+		for i = 1, #allRaids do
+			local r = allRaids[i]
+			local journalId = r.journalInstanceId
+			local encounters = r.encountersArray
+
+			for o = 1, #encounters do
+				local e = encounters[o]
+				local journalEncounterId = e.journalEncounterId
+				local difficulty = 16 --mythic
+
+				local bossName = e.name:lower()
+
+				if (one and bossName:find(one) and not two) then
+					local allSpells = df.Ejc.GetEncounterSpells(journalId, journalEncounterId, difficulty)
+					dumpt(allSpells)
+					foundBoss = true
+					return
+				end
+
+				if one and two and bossName:find(one) and bossName:find(two) then
+					local allSpells = df.Ejc.GetEncounterSpells(journalId, journalEncounterId, difficulty)
+					dumpt(allSpells)
+					foundBoss = true
+					return
+				end
+			end
+		end
+
+		if (not foundBoss) then
+			print("No boss found. Use: /details bossspells [boss name]. Example: '/details bossspells Dimen' > return Dimensius, the all-devouring spells.")
+		end
+
+	elseif (command == "bsl") then
+		local df = DetailsFramework
+		local allRaids = df.Ejc.GetAllRaidInstances()
+
+		local one, two = rest:match("^(%S*)%s*(.-)$")
+
+		if (not one or one == "") then
+			print("Use: /details bosslore [boss name]. Example: '/details bosslore Dimen' or '/details bosslore the soul' -> Dimensius and The Soul Hunters.")
+			return
+		end
+
+		one = one:lower()
+		if (two and two ~= "") then
+			two = two:lower()
+		else
+			two = nil
+		end
+
+		for i = 1, #allRaids do
+			local r = allRaids[i]
+			local journalId = r.journalInstanceId
+			local journalInstanceId= journalId
+			local encounters = r.encountersArray
+
+			for o = 1, #encounters do
+				local e = encounters[o]
+				local journalEncounterId = e.journalEncounterId
+				local difficulty = DUMP_JOURNAL_DIFF or 16 --mythic
+
+				local bossName = e.name:lower()
+
+				EJ_SetDifficulty(difficulty)
+				EJ_SelectInstance(journalInstanceId)
+				EJ_SelectEncounter(journalEncounterId)
+
+				local encounterName, encounterDescription, journalEncounterID, rootSectionID, link, journalInstanceID, dungeonEncounterID, instanceID = EJ_GetEncounterInfo(journalEncounterId)
+
+				local sectionStack = {}
+				local currentSectionId = rootSectionID
+
+				local spells = {}
+				local loreSpells = {}
+
+				local foundBoss =false
+
+				if (one and bossName:find(one) and not two) then
+					foundBoss = true
+				end
+
+				if one and two and bossName:find(one) and bossName:find(two) then
+					foundBoss = true
+				end
+
+				if (foundBoss) then
+					repeat
+						local sectionInfo = C_EncounterJournal.GetSectionInfo(currentSectionId)
+						if (not sectionInfo) then
+							break
+						end
+
+						local iconFlags = C_EncounterJournal.GetSectionIconFlags(currentSectionId)
+						if iconFlags and #iconFlags > 0 then
+							sectionInfo.iconFlags = iconFlags
+							--dumpt(iconFlags)
+						end
+
+						if (sectionInfo.spellID) then
+							loreSpells[#loreSpells+1] = sectionInfo
+							--dumpt (sectionInfo)
+						end
+
+						if (sectionInfo.spellID) then
+							local spellInfo = C_Spell.GetSpellInfo(sectionInfo.spellID)
+							sectionInfo.spellName = spellInfo and spellInfo.name
+							sectionInfo.spellIcon = spellInfo and spellInfo.iconID
+
+							table.insert(spells, sectionInfo)
+
+							spells[sectionInfo.spellID] = sectionInfo
+							if (sectionInfo.spellName) then
+								spells[sectionInfo.spellName] = sectionInfo
+							end
+							if (sectionInfo.title) then
+								spells[sectionInfo.title] = sectionInfo
+							end
+						end
+
+						if (sectionInfo.siblingSectionID) then
+							table.insert(sectionStack, sectionInfo.siblingSectionID)
+						end
+
+						if (sectionInfo.firstChildSectionID) then
+							table.insert(sectionStack, sectionInfo.firstChildSectionID)
+						end
+
+						currentSectionId = table.remove(sectionStack)
+					until not currentSectionId
+
+				end
+
+				--print("#loreSpells:", #loreSpells, "for boss:", e.name)
+
+				if (loreSpells[1]) then
+					dumpt(loreSpells)
+				end
+
+				--dumpt(allSpells)
+			end
+		end
+
 	elseif (msg == "buffs") then
 		for i = 1, 40 do
 			local name, texture, count, debuffType, duration, expirationTime, caster, canStealOrPurge, nameplateShowPersonal, spellid = UnitBuff ("player", i)
@@ -895,27 +1100,14 @@ function SlashCmdList.DETAILS (msg, editbox)
 			print(Loc["STRING_DETAILS1"] .. "net diagnostic mode has been turned on.")
 		end
 
-	elseif (command == "debug") then
-		if (Details.debug) then
-			Details.debug = false
-			print(Loc ["STRING_DETAILS1"] .. "diagnostic mode has been turned off.")
-			return
-		else
-			Details.debug = true
-			print(Loc ["STRING_DETAILS1"] .. "diagnostic mode has been turned on.")
+	elseif (command == "m+debug") then
+		Details222.Debug.SetMythicPlusDebugState() --passing nothing will toggle the debug state
 
-			if (rest and rest ~= "") then
-				if (rest == "-clear") then
-					_detalhes_global.debug_chr_log = ""
-					print(Loc ["STRING_DETAILS1"] .. "log for characters has been wiped.")
-					return
-				end
-				Details.debug_chr = rest
-				_detalhes_global.debug_chr_log = _detalhes_global.debug_chr_log or ""
-				print(Loc ["STRING_DETAILS1"] .. "diagnostic for character " .. rest .. " turned on.")
-				return
-			end
-		end
+	elseif (command == "m+debugloot") then
+		Details222.Debug.SetMythicPlusLootDebugState() --passing nothing will toggle the debug state
+
+	elseif (command == "debug") then
+		Details.ShowDebugOptionsPanel()
 
 	--debug combat log
 	elseif (msg == "combatlog") then
@@ -1042,33 +1234,7 @@ function SlashCmdList.DETAILS (msg, editbox)
 			1 --school =
 		)
 
-	elseif (msg == "ejloot") then
-		DetailsFramework.EncounterJournal.EJ_SelectInstance (669) -- hellfire citadel
-		DetailsFramework.EncounterJournal.EJ_SetDifficulty (16)
-
-		local r = {}
-		local total = 0
-
-		for i = 1, 100 do
-			local name, description, encounterID, rootSectionID, link = DetailsFramework.EncounterJournal.EJ_GetEncounterInfoByIndex (i, 669)
-			if (name) then
-				DetailsFramework.EncounterJournal.EJ_SelectEncounter (encounterID)
-				print(name, encounterID, DetailsFramework.EncounterJournal.EJ_GetNumLoot())
-
-				for o = 1, DetailsFramework.EncounterJournal.EJ_GetNumLoot() do
-					local name, icon, slot, armorType, itemID, link, encounterID = DetailsFramework.EncounterJournal.EJ_GetLootInfoByIndex (o)
-					r[slot] = r[slot] or {}
-					table.insert(r[slot], {itemID, encounterID})
-					total = total + 1
-				end
-			end
-		end
-
-		print("total loot", total)
-		_detalhes_global.ALOOT  = r
-
 	elseif (msg == "ilvl" or msg == "itemlevel" or msg == "ilevel") then
-
 		local item_amount = 16
 		local item_level = 0
 		local failed = 0
@@ -1237,7 +1403,7 @@ function SlashCmdList.DETAILS (msg, editbox)
 
 	elseif (msg == "me" or msg == "ME" or msg == "Me" or msg == "mE") then
 		Details.slash_me_used = true
-		local UnitGroupRolesAssigned = DetailsFramework.UnitGroupRolesAssigned
+		local UnitGroupRolesAssigned = detailsFramework.UnitGroupRolesAssigned
 		local role = UnitGroupRolesAssigned("player")
 		if (role == "HEALER") then
 			Details:OpenPlayerDetails(2)
@@ -1247,9 +1413,9 @@ function SlashCmdList.DETAILS (msg, editbox)
 
 	elseif (msg == "spec") then
 
-	local spec = DetailsFramework.GetSpecialization()
+	local spec = detailsFramework.GetSpecialization()
 	if (spec) then
-		local specID = DetailsFramework.GetSpecializationInfo(spec)
+		local specID = detailsFramework.GetSpecializationInfo(spec)
 		if (specID and specID ~= 0) then
 			print("Current SpecID: ", specID)
 		end
@@ -1285,7 +1451,7 @@ function SlashCmdList.DETAILS (msg, editbox)
 		end
 
 		--create a new combat to be the overall for the mythic run
-		Details:EntrarEmCombate()
+		Details222.StartCombat()
 
 		--get the current combat just created and the table with all past segments
 		local newCombat = Details:GetCurrentCombat()
@@ -1315,28 +1481,13 @@ function SlashCmdList.DETAILS (msg, editbox)
 		end
 
 		newCombat.is_trash = false
-		Details:Msg("done merging, segments: " .. segmentsAdded .. ", total time: " .. DetailsFramework:IntegerToTimer(totalTime))
-
-		--[[ --mythic+ debug
-		--tag the segment as mythic overall segment
-		newCombat.is_mythic_dungeon = {
-			MapID = _detalhes.MythicPlus.Dungeon,
-			StartedAt = _detalhes.MythicPlus.StartedAt, --the start of the run
-			EndedAt = _detalhes.MythicPlus.EndedAt, --the end of the run
-			SegmentID = "overall", --segment number within the dungeon
-			--EncounterID = encounterID,
-			--EncounterName = encounterName,
-			RunID = _detalhes.MythicPlus.RunID,
-			OverallSegment = true,
-		}
-		--]]
+		Details:Msg("done merging, segments: " .. segmentsAdded .. ", total time: " .. detailsFramework:IntegerToTimer(totalTime))
 
 		--set some data
-		newCombat:SetStartTime (GetTime() - totalTime)
-		newCombat:SetEndTime (GetTime())
+		newCombat:SetStartTime(GetTime() - totalTime)
+		newCombat:SetEndTime(GetTime())
 
-		newCombat.data_inicio = startDate
-		newCombat.data_fim = endDate
+		newCombat:SetDate(startDate, endDate)
 
 		--immediatly finishes the segment just started
 		Details:SairDoCombate()
@@ -1367,10 +1518,10 @@ function SlashCmdList.DETAILS (msg, editbox)
 		local spellIDs = {}
 
 		--uldir
-		DetailsFramework.EncounterJournal.EJ_SelectInstance (1031)
+		detailsFramework.EncounterJournal.EJ_SelectInstance (1031)
 
 		-- pega o root section id do boss
-		local name, description, encounterID, rootSectionID, link = DetailsFramework.EncounterJournal.EJ_GetEncounterInfo (2168) --taloc (primeiro boss de Uldir)
+		local name, description, encounterID, rootSectionID, link = detailsFramework.EncounterJournal.EJ_GetEncounterInfo (2168) --taloc (primeiro boss de Uldir)
 
 		--overview
 		local sectionInfo = C_EncounterJournal.GetSectionInfo (rootSectionID)
@@ -1378,7 +1529,7 @@ function SlashCmdList.DETAILS (msg, editbox)
 
 		while (nextID [1]) do
 			--get the deepest section in the hierarchy
-			local ID = tremove(nextID)
+			local ID = table.remove(nextID)
 			local sectionInfo = C_EncounterJournal.GetSectionInfo (ID)
 
 			if (sectionInfo) then
@@ -1441,7 +1592,7 @@ function SlashCmdList.DETAILS (msg, editbox)
 		}
 
 		local data = DETAILS_EXTERNAL_LOG
-		local t = DetailsFramework:SplitTextInLines(data)
+		local t = detailsFramework:SplitTextInLines(data)
 		local a = {}
 
 		local parser = Details.LogParserEvent
@@ -1453,7 +1604,7 @@ function SlashCmdList.DETAILS (msg, editbox)
 			local tokenId = line:match("%s%s(.*)"):match("^(.-),")
 
 			if (tokenId == "ENCOUNTER_START") then
-				Details:StartCombat()
+				Details222.StartCombat()
 			end
 
 			if (tokenId == "ENCOUNTER_END") then
@@ -1521,14 +1672,6 @@ function SlashCmdList.DETAILS (msg, editbox)
 		print("profile name:", Details.always_use_profile_name)
 		print("version:", Details.build_counter >= Details.alpha_build_counter and Details.build_counter or Details.alpha_build_counter)
 
-	elseif (msg == "record") then
-
-
-			Details.ScheduleLoadStorage()
-			Details.TellDamageRecord = C_Timer.NewTimer(0.6, Details.PrintEncounterRecord)
-			Details.TellDamageRecord.Boss = 2032
-			Details.TellDamageRecord.Diff = 16
-
 	elseif (msg == "recordtest") then
 
 		local f = DetailsRecordFrameAnimation
@@ -1539,10 +1682,10 @@ function SlashCmdList.DETAILS (msg, editbox)
 			--Interface\Cooldown\star4
 			--efeito de batida?
 			--Interface\Artifacts\ArtifactAnim2
-			local animationHub = DetailsFramework:CreateAnimationHub (f, function() f:Show() end)
+			local animationHub = detailsFramework:CreateAnimationHub (f, function() f:Show() end)
 
-			DetailsFramework:CreateAnimation(animationHub, "Scale", 1, .10, .9, .9, 1.1, 1.1)
-			DetailsFramework:CreateAnimation(animationHub, "Scale", 2, .10, 1.2, 1.2, 1, 1)
+			detailsFramework:CreateAnimation(animationHub, "Scale", 1, .10, .9, .9, 1.1, 1.1)
+			detailsFramework:CreateAnimation(animationHub, "Scale", 2, .10, 1.2, 1.2, 1, 1)
 		end
 
 	--BFA BETA
@@ -1558,9 +1701,15 @@ function SlashCmdList.DETAILS (msg, editbox)
 	elseif (msg == "generateracialslist") then
 		Details.GenerateRacialSpellList()
 
-	elseif (msg == "survey") then
+	elseif (msg == "bug") then
+		dumpt(DETAILS_FAILED_ACTOR or {"No bug to report here."})
+
+	elseif (msg == "spellcat") then
 		Details.Survey.OpenSurveyPanel()
 
+	elseif (msg == "pstate") then
+		local sEngineState = Details222.Parser.GetState()
+		Details:Msg("Parser State:", sEngineState)
 	else
 
 		--if (_detalhes.opened_windows < 1) then
@@ -1638,7 +1787,7 @@ function Details.RefreshUserList (ignoreIfHidden)
 		return
 	end
 
-	local newList = DetailsFramework.table.copy({}, Details.users or {})
+	local newList = detailsFramework.table.copy({}, Details.users or {})
 
 	table.sort (newList, function(t1, t2)
 		return t1[3] > t2[3]
@@ -1669,7 +1818,7 @@ end
 function Details:UpdateUserPanel(usersTable)
 	if (not Details.UserPanel) then
 		local frameWidth, frameHeight = 470, 605
-		DetailsUserPanel = DetailsFramework:CreateSimplePanel(UIParent)
+		DetailsUserPanel = detailsFramework:CreateSimplePanel(UIParent)
 		DetailsUserPanel:SetSize(frameWidth, frameHeight)
 		DetailsUserPanel:SetTitle("Details! Version Check")
 		DetailsUserPanel.Data = {}
@@ -1677,7 +1826,7 @@ function Details:UpdateUserPanel(usersTable)
 		DetailsUserPanel:SetPoint("left", UIParent, "left", 5, 100)
 		DetailsUserPanel:Hide()
 
-		DetailsFramework:ApplyStandardBackdrop(DetailsUserPanel)
+		detailsFramework:ApplyStandardBackdrop(DetailsUserPanel)
 
 		Details.UserPanel = DetailsUserPanel
 
@@ -1706,7 +1855,7 @@ function Details:UpdateUserPanel(usersTable)
 			padding = 2,
 		}
 
-		DetailsUserPanel.Header = DetailsFramework:CreateHeader(DetailsUserPanel, headerTable, headerOptions)
+		DetailsUserPanel.Header = detailsFramework:CreateHeader(DetailsUserPanel, headerTable, headerOptions)
 		DetailsUserPanel.Header:SetPoint("topleft", DetailsUserPanel, "topleft", 5, headerY)
 
 		local scrollRefresh = function(self, data, offset, total_lines)
@@ -1721,7 +1870,7 @@ function Details:UpdateUserPanel(usersTable)
 					local userName, userRealm, userVersion = unpack(userTable)
 					if (not userShown[userName]) then
 						local line = self:GetLine(lineId)
-						local onlyUserName = DetailsFramework:RemoveRealmName(userName)
+						local onlyUserName = detailsFramework:RemoveRealmName(userName)
 						line.UserNameText.text = onlyUserName
 						line.RealmText.text = userRealm
 						line.VersionText.text = userVersion
@@ -1758,19 +1907,19 @@ function Details:UpdateUserPanel(usersTable)
 			line:SetBackdrop({bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true})
 			line:SetBackdropColor(unpack(backdrop_color))
 
-			DetailsFramework:Mixin(line, DetailsFramework.HeaderFunctions)
+			detailsFramework:Mixin(line, detailsFramework.HeaderFunctions)
 
 			line:SetScript("OnEnter", lineOnEnter)
 			line:SetScript("OnLeave", lineOnLeave)
 
 			--username
-			local userNameText = DetailsFramework:CreateLabel(line)
+			local userNameText = detailsFramework:CreateLabel(line)
 
 			--realm
-			local realmText = DetailsFramework:CreateLabel(line)
+			local realmText = detailsFramework:CreateLabel(line)
 
 			--version
-			local versionText = DetailsFramework:CreateLabel(line)
+			local versionText = detailsFramework:CreateLabel(line)
 
 			line:AddFrameToHeaderAlignment (userNameText)
 			line:AddFrameToHeaderAlignment (realmText)
@@ -1785,8 +1934,8 @@ function Details:UpdateUserPanel(usersTable)
 			return line
 		end
 
-		local usersScroll = DetailsFramework:CreateScrollBox (DetailsUserPanel, "$parentUsersScroll", scrollRefresh, DetailsUserPanel.Data, scroll_width, scroll_height, scroll_lines, scroll_line_height)
-		DetailsFramework:ReskinSlider(usersScroll)
+		local usersScroll = detailsFramework:CreateScrollBox (DetailsUserPanel, "$parentUsersScroll", scrollRefresh, DetailsUserPanel.Data, scroll_width, scroll_height, scroll_lines, scroll_line_height)
+		detailsFramework:ReskinSlider(usersScroll)
 		usersScroll:SetPoint("topleft", DetailsUserPanel, "topleft", 5, scrollY)
 		Details.UserPanel.ScrollBox = usersScroll
 
@@ -1813,7 +1962,7 @@ function Details:CreateListPanel(name)
 	newListPanel:SetPoint("center", UIParent, "center", 300, 0)
 	newListPanel.lines = {}
 
-	DetailsFramework:ApplyStandardBackdrop(newListPanel.widget)
+	detailsFramework:ApplyStandardBackdrop(newListPanel.widget)
 
 	table.insert(UISpecialFrames, name)
 	newListPanel.close_with_right = true
@@ -1857,7 +2006,7 @@ function Details:CreateListPanel(name)
 
 	container_barras_window.gump = container_barras
 
-	DetailsFramework:ReskinSlider(container_barras_window)
+	detailsFramework:ReskinSlider(container_barras_window)
 
 	function newListPanel:reset()
 		for i = 1, #newListPanel.lines do
@@ -1914,7 +2063,7 @@ function Details:ReplaceKeystoneCommand(addonObject, memberName, ...)
 		if (keystoneCallbacks[i].addonObject == addonObject) then
 			--check if the memberName is the same
 			if (keystoneCallbacks[i].memberName == memberName) then
-				tremove(keystoneCallbacks, i)
+				table.remove(keystoneCallbacks, i)
 				return false
 			end
 		end
@@ -1931,13 +2080,259 @@ function Details:ReplaceKeystoneCommand(addonObject, memberName, ...)
 	return true
 end
 
+
+
 if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 	SLASH_KEYSTONE1 = "/keystone"
 	SLASH_KEYSTONE2 = "/keys"
 	SLASH_KEYSTONE3 = "/key"
 
+	local noMythicPlusAddonMsg = Loc["STRING_NO_MYTHIC_PLUS_ADDON"]
+
+	--header
+	local keystoneHeaderTable = {
+		{text = CLASS, width = 40, canSort = true, dataType = "number", order = "DESC", offset = 0},
+		{text = Loc["STRING_FORGE_FILTER_PLAYERNAME"], width = 100, canSort = true, dataType = "string", order = "DESC", offset = 0},
+		{text = LEVEL, width = 46, canSort = true, dataType = "number", order = "DESC", offset = 0, selected = true},
+		{text = Loc["STRING_OPTIONS_PERFORMANCE_DUNGEON"], width = 150, canSort = true, dataType = "string", order = "DESC", offset = 0},
+		{text = RATING, width = 50, canSort = true, dataType = "number", order = "DESC", offset = 0},
+		{text = Loc["STRING_TELEPORT"], width = 100, canSort = false, offset = 0},
+		{text = Loc["STRING_LIKES_YOU_GAVE"], width = 24, canSort = false, offset = 0, name = "likesGiven", columnSpan = 1},
+		{text = "", width = 129, canSort = false, offset = 0, name = "likesGiven"},
+	}
+
+	local buttonsCreated = {}
+	local CONST_SCROLL_LINE_HEIGHT = 22
+	local CONST_WINDOW_WIDTH = 650
+	local CONST_WINDOW_HEIGHT = 726
+	local CONST_SCROLL_LINE_AMOUNT = 21
+
+	local detailsKeystoneInfoFrame = detailsFramework:CreateSimplePanel(UIParent, CONST_WINDOW_WIDTH, CONST_WINDOW_HEIGHT, "M+ Keystones (/key, /keys, /keystone)", "DetailsKeystoneInfoFrame")
+	detailsKeystoneInfoFrame:Hide()
+
+	--pre create 30 protected buttons
+	for i = 1, 30 do
+		local teleportButton = CreateFrame("button", nil, detailsKeystoneInfoFrame, "InsecureActionButtonTemplate, BackdropTemplate")
+		teleportButton:SetAttribute("type", "spell")
+		teleportButton:RegisterForClicks("AnyDown")
+		teleportButton:SetFrameLevel(detailsKeystoneInfoFrame:GetFrameLevel() + 10)
+		teleportButton:SetSize(keystoneHeaderTable[6].width - 10, CONST_SCROLL_LINE_HEIGHT - 2)
+		teleportButton:Hide()
+		buttonsCreated[i] = teleportButton
+
+		teleportButton.Icon = teleportButton:CreateTexture("$parentIcon", "overlay")
+		teleportButton.Icon:SetSize(CONST_SCROLL_LINE_HEIGHT - 2, CONST_SCROLL_LINE_HEIGHT - 2)
+		teleportButton.Icon:SetPoint("left", teleportButton, "left", 2, 0)
+		detailsFramework:SetMask(teleportButton.Icon, [[Interface\AddOns\Details\images\masks\portal_mask.tga]])
+		teleportButton.Text = teleportButton:CreateFontString("$parentText", "overlay", "GameFontNormal")
+		teleportButton.Text:SetPoint("left", teleportButton.Icon, "right", 2, 0)
+		teleportButton.Text:SetTextColor(1, 1, 1, 1)
+		teleportButton.Text:SetText("Teleport")
+		teleportButton.CastBar = detailsFramework:CreateCastBar(teleportButton, "DetailsMythicPlusKeysCastBar" .. i, {DontUpdateAlpha=true,FillOnInterrupt=false, NoFadeEffects=true})
+
+		if detailsFramework.IsTWWWow() then
+			teleportButton.CastBar:SetUnit("player")
+		end
+
+		teleportButton.CastBar:SetAllPoints()
+		teleportButton.CastBar:SetHook("OnShow", function(self)
+			local line = self:GetParent() and self:GetParent():GetParent()
+			if (line and line.teleportButton) then
+				if (self.spellID ~= line.teleportButton.spellId) then
+					self:SetAlpha(0)
+				end
+			end
+		end)
+		teleportButton.CastBar:HookScript("OnUpdate", function(self, event, ...)
+			local line = self:GetParent() and self:GetParent():GetParent()
+			if (line and line.teleportButton) then
+				if (self.spellID ~= line.teleportButton.spellId) then
+					self:SetAlpha(0)
+				end
+			end
+		end)
+		teleportButton.CastBar:HookScript("OnEvent", function(self, event, ...)
+			if (event == "UNIT_SPELLCAST_START") then
+				local line = self:GetParent() and self:GetParent():GetParent()
+				if (line and line ~= UIParent and line.teleportButton) then
+					if (self.spellID ~= line.teleportButton.spellId) then
+						self:SetAlpha(0)
+					else
+						self:SetAlpha(1)
+					end
+				end
+				teleportButton.CastBar.Text:Hide()
+				teleportButton.CastBar.Icon:Hide()
+				teleportButton.CastBar.Spark:SetHeight(40)
+			end
+			if (event == "UNIT_SPELLCAST_INTERRUPTED") then
+				teleportButton.CastBar:Hide()
+			end
+		end)
+	end
+
+--    detailsKeystoneInfoFrame:SetBackdropColor(.1, .1, .1, 0)
+--    detailsKeystoneInfoFrame:SetBackdropBorderColor(.1, .1, .1, 0)
+--    detailsFramework:AddRoundedCornersToFrame(detailsKeystoneInfoFrame, {
+--		roundness = 6,
+--		color = {.1, .1, .1, 0.98},
+--		border_color = {.05, .05, .05, 0.834},
+--	})
+
+	detailsKeystoneInfoFrame.TitleBar:AdjustPointsOffset(-1, 1)
+	local point1, frame1, point2, offSetX, offSetY = detailsKeystoneInfoFrame.TitleBar:GetPoint(2)
+	detailsKeystoneInfoFrame.TitleBar:SetPoint(point1, frame1, point2, offSetX+2, offSetY+1)
+	detailsKeystoneInfoFrame.TitleBar:SetHeight(detailsKeystoneInfoFrame.TitleBar:GetHeight() + 2)
+
+	local footer = CreateFrame("frame", "$parentFooter", detailsKeystoneInfoFrame, "BackdropTemplate")
+	detailsFramework:ApplyStandardBackdrop(footer)
+	footer:SetPoint("bottomleft", detailsKeystoneInfoFrame, "bottomleft", 0, 0)
+	footer:SetPoint("bottomright", detailsKeystoneInfoFrame, "bottomright", 0, 0)
+	footer:SetHeight(74)
+
+	local currentDungeons = LIB_OPEN_RAID_MYTHIC_PLUS_CURRENT_SEASON
+	local lastButton
+
+	local buttonSize = 46
+	local spaceBetweenButtons = 5
+
+	--a fontstring positioned at the topleft of the footer with the text "teleporters:"
+	local teleportersLabel = footer:CreateFontString(nil, "overlay", "GameFontNormal")
+	teleportersLabel:SetPoint("topleft", footer, "topleft", 58, -9)
+	teleportersLabel:SetText(Loc["STRING_TELEPORTERS"])
+
+	local cooldownBlocker = CreateFrame("frame", "$parentCooldownBlocker", footer, "BackdropTemplate")
+	cooldownBlocker:SetPoint("topleft", footer, "topleft", 140, -5)
+	cooldownBlocker:SetSize(8 * (buttonSize + spaceBetweenButtons) - spaceBetweenButtons, buttonSize)
+	cooldownBlocker:SetFrameLevel(footer:GetFrameLevel() + 10)
+	cooldownBlocker:EnableMouse(true)
+	cooldownBlocker:SetBackdrop({bgFile = [[Interface\Tooltips\UI-Tooltip-Background]]})
+	cooldownBlocker:SetBackdropColor(.1, .1, .1, 0.8)
+	cooldownBlocker:Hide()
+
+	cooldownBlocker.cooldownText = cooldownBlocker:CreateFontString(nil, "overlay", "GameFontNormal")
+	cooldownBlocker.cooldownText:SetPoint("center", cooldownBlocker, "center", 0, 0)
+	cooldownBlocker.cooldownText:SetTextColor(1, 1, 1, 0.25)
+	cooldownBlocker.cooldownText:SetText("Cooldown")
+	detailsFramework:SetFontSize(cooldownBlocker.cooldownText, 20)
+
+	local spellIdToCheckCooldown
+	local teleporterButtons = {}
+	local frameAboveTeleporterButtons = CreateFrame("frame", "$parentFrameAboveTeleporterButtons", footer, "BackdropTemplate")
+	frameAboveTeleporterButtons:SetAllPoints()
+	frameAboveTeleporterButtons:SetFrameLevel(footer:GetFrameLevel() + 2)
+	frameAboveTeleporterButtons:EnableMouse(false)
+	frameAboveTeleporterButtons.Frames = {}
+
+	footer:SetScript("OnUpdate", function()
+		if (spellIdToCheckCooldown) then
+			local cooldownInfo = C_Spell.GetSpellCooldown(spellIdToCheckCooldown)
+			if (cooldownInfo) then
+				local start, duration = cooldownInfo.startTime, cooldownInfo.duration
+				if (start > 0) then
+					cooldownBlocker:Show()
+					cooldownBlocker.cooldownText:SetText(detailsFramework:IntegerToCooldownTime((start + duration) - GetTime()) .. "\n remaining")
+				else
+					cooldownBlocker:Hide()
+					cooldownBlocker.cooldownText:SetText("")
+				end
+			end
+		end
+
+		for i = 1, #teleporterButtons do
+			local thisTeleportButton = teleporterButtons[i]
+			local spellId = thisTeleportButton.spellId
+			if (C_SpellBook.IsSpellInSpellBook(spellId)) then
+				frameAboveTeleporterButtons.Frames[i]:Hide()
+			else
+				frameAboveTeleporterButtons.Frames[i]:Show()
+			end
+		end
+	end)
+
+	for i = 1, #currentDungeons do --array of mapIds from GetInstanceInfo()
+		local mapId = currentDungeons[i]
+		local teleportButton = CreateFrame("button", nil, footer, "InsecureActionButtonTemplate, BackdropTemplate")
+		teleportButton:SetAttribute("type", "spell")
+		teleportButton:RegisterForClicks("AnyDown")
+		teleporterButtons[#teleporterButtons+1] = teleportButton
+		teleportButton:SetFrameLevel(footer:GetFrameLevel() + 1)
+
+		teleportButton:SetScript("OnEnter", function(self)
+			GameCooltip:Preset(2)
+			GameCooltip:SetOwner(self, "bottom", "top", 0, 5)
+			GameCooltip:AddLine(self.dungeonName, "", 1)
+			GameCooltip:Show()
+		end)
+
+		teleportButton:SetScript("OnLeave", function(self)
+			GameCooltip:Hide()
+		end)
+
+		local dungeonAcronym = teleportButton:CreateFontString(nil, "overlay", "GameFontNormal")
+		dungeonAcronym:SetPoint("bottom", teleportButton, "bottom", 0, 0)
+		teleportButton.DungeonAcronym = dungeonAcronym
+
+		teleportButton:SetSize(buttonSize, buttonSize)
+
+		local blockTeleporter = CreateFrame("frame", nil, frameAboveTeleporterButtons)
+		blockTeleporter:SetSize(buttonSize, buttonSize)
+		blockTeleporter:Hide()
+		blockTeleporter.Texture = blockTeleporter:CreateTexture(nil, "overlay")
+		blockTeleporter.Texture:SetAllPoints()
+		blockTeleporter.Texture:SetColorTexture(0.1, 0.1, 0.1, 0.8)
+		blockTeleporter:SetScript("OnEnter", function()
+			GameCooltip:Preset(2)
+			GameCooltip:SetOwner(blockTeleporter, "bottom", "top", 0, 5)
+			GameCooltip:AddLine(Loc["STRING_NO_TELEPORTER"], "", 1)
+			GameCooltip:Show()
+		end)
+		blockTeleporter:SetScript("OnLeave", function()
+			GameCooltip:Hide()
+		end)
+		frameAboveTeleporterButtons.Frames[#frameAboveTeleporterButtons.Frames + 1] = blockTeleporter
+
+		for spellId, thisMapId in pairs(LIB_OPEN_RAID_MYTHIC_PLUS_TELEPORT_SPELLS) do
+			if (mapId == thisMapId) then
+				teleportButton:SetAttribute("spell", spellId)
+				teleportButton.spellId = spellId
+				spellIdToCheckCooldown = spellId
+
+				for challengeModeMapId, dungeonInfo in pairs(LIB_OPEN_RAID_MYTHIC_PLUS_MAPINFO) do
+					if (dungeonInfo[6] == mapId) then
+						teleportButton:SetNormalTexture(dungeonInfo[4])
+						teleportButton:SetPushedTexture(dungeonInfo[4])
+						teleportButton:SetHighlightTexture(dungeonInfo[4])
+
+						local dungeonName = dungeonInfo[1] or "Unknown Dungeon"
+						dungeonAcronym:SetText(detailsFramework.string.Acronym(dungeonName))
+						teleportButton.dungeonName = dungeonName
+						break
+					end
+				end
+			end
+		end
+
+		if (not lastButton) then
+			teleportButton:SetPoint("topleft", footer, "topleft", 140, -5)
+			blockTeleporter:SetPoint("topleft", footer, "topleft", 140, -5)
+			lastButton = teleportButton
+		else
+			teleportButton:SetPoint("left", lastButton, "right", spaceBetweenButtons, 0)
+			blockTeleporter:SetPoint("left", lastButton, "right", spaceBetweenButtons, 0)
+			lastButton = teleportButton
+		end
+	end
+
+	local backgroundGradientTexture = detailsFramework:CreateTexture(footer, {gradient = "vertical", fromColor = {0, 0, 0, 0}, toColor = {0, 0, 0, 0.3}}, 1, 30, "artwork", {0, 1, 0, 1})
+	backgroundGradientTexture:SetPoint("topleft", footer, "topleft", 0, 0)
+	backgroundGradientTexture:SetPoint("topright", footer, "topright", 0, 0)
+
+	local GetSpellCooldown = C_Spell and C_Spell.GetSpellCooldown or GetSpellCooldown
+
 	function SlashCmdList.KEYSTONE(msg, editbox)
 		--if there is addons registered to use the keystone command, call them and do not show the default frame from details!
+		--[=[
 		if (#keystoneCallbacks > 0) then
 			--loop through all registered addons and call their callback function
 			local bCallbackSuccess = false
@@ -1949,7 +2344,7 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				local payload = thisCallback.payload
 
 				if (type(addonObject[memberName]) == "function") then
-					local result = DetailsFramework:Dispatch(addonObject[memberName], unpack(payload)) --uses xpcall
+					local result = detailsFramework:Dispatch(addonObject[memberName], unpack(payload)) --uses xpcall
 					if (result ~= false) then
 						bCallbackSuccess = true
 					end
@@ -1960,15 +2355,28 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				return
 			end
 		end
+		--]=]
 
-		local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0")
+		local commandUsed = editbox:GetText()
+		if (commandUsed == "/key") then
+			local addonToUse = Details.slashk_addon
+			if (addonToUse == "bigwigs" and _G.BigWigsLoader) then
+				--DEFAULT_CHAT_FRAME.editBox:SetText("/bwkey") ChatEdit_SendText(DEFAULT_CHAT_FRAME.editBox, 0)
+				--return
+
+			elseif (addonToUse == "astralkeys" and _G.AstralKeys) then
+				--DEFAULT_CHAT_FRAME.editBox:SetText("/astralkeys") ChatEdit_SendText(DEFAULT_CHAT_FRAME.editBox, 0)
+				--return
+			end
+		end
+
+		local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
 		if (openRaidLib) then
-			if (not DetailsKeystoneInfoFrame) then
+			if (not DetailsKeystoneInfoFrame.Created) then
+				DetailsKeystoneInfoFrame.Created = true
 
-				local CONST_WINDOW_WIDTH = 614
-				local CONST_WINDOW_HEIGHT = 700
-				local CONST_SCROLL_LINE_HEIGHT = 20
-				local CONST_SCROLL_LINE_AMOUNT = 30
+				---@type detailsframework
+				local detailsFramework = detailsFramework
 
 				local backdrop_color = {.2, .2, .2, 0.2}
 				local backdrop_color_on_enter = {.8, .8, .8, 0.4}
@@ -1979,7 +2387,8 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				local backdrop_color_inguild = {.5, .8, .5, 0.2}
 				local backdrop_color_on_enter_inguild = {.5, 1, .5, 0.4}
 
-				local f = DetailsFramework:CreateSimplePanel(UIParent, CONST_WINDOW_WIDTH, CONST_WINDOW_HEIGHT, "M+ Keystones (/key)", "DetailsKeystoneInfoFrame")
+				local f = DetailsKeystoneInfoFrame
+				f:ClearAllPoints()
 				f:SetPoint("center", UIParent, "center", 0, 0)
 
 				f:SetScript("OnMouseDown", nil) --disable framework native moving scripts
@@ -1990,25 +2399,509 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				LibWindow.MakeDraggable(f)
 				LibWindow.RestorePosition(f)
 
-				local scaleBar = DetailsFramework:CreateScaleBar(f, Details.keystone_frame)
+				f:SetScript("OnEvent", function(self, event, ...)
+					if (f:IsShown()) then
+						if (event == "GUILD_ROSTER_UPDATE") then
+							self:RefreshData()
+						end
+					end
+				end)
+
+				--select key addon
+				local selectAddonFrame = CreateFrame("frame", "DetailsMythicPlusSelectAddonFrame", f, "BackdropTemplate")
+				selectAddonFrame:SetPoint("center", f, "center", 5, -5)
+				selectAddonFrame:SetSize(270, 200)
+				detailsFramework:ApplyStandardBackdrop(selectAddonFrame)
+				selectAddonFrame:Hide()
+				f.SelectAddonFrame = selectAddonFrame
+				selectAddonFrame.currentSelected = nil
+
+				local selectAddOnLabel = selectAddonFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				selectAddOnLabel:SetPoint("topleft", selectAddonFrame, "topleft", 2, -2)
+				selectAddOnLabel:SetText("Choose which adddon should handle /key:")
+				selectAddonFrame.Title = selectAddOnLabel
+
+				local redoSelectionLabel = selectAddonFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				redoSelectionLabel:SetPoint("bottomleft", selectAddonFrame, "bottomleft", 2, 2)
+				redoSelectionLabel:SetText("Click 'Select Addon' in the bottom right\ncorner to change again another time.")
+				redoSelectionLabel:SetJustifyH("LEFT")
+				selectAddonFrame.RedoSelectionLabel = redoSelectionLabel
+
+				local selectSection = function()
+				end
+
+				local selectAddonButton = detailsFramework:CreateButton(f, function() selectAddonFrame:Show() end, 64, 20, "select addon for /key")
+				selectAddonButton:SetPoint("bottomright", f, "bottomright", 2, 17)
+				selectAddonButton.textcolor = "gray"
+				selectAddonButton.alpha = 0.9
+				selectAddonButton:Hide()
+
+				--checkbox for dnd --Details.slashk_dnd
+				local dndCheckbox = detailsFramework:CreateSwitch(f, function(_, _, checked) Details.slashk_dnd = checked; LIB_OPEN_RAID_MYTHIC_PLUS_DND = checked end, Details.slashk_dnd)
+				dndCheckbox:SetTemplate(detailsFramework:GetTemplate("switch", "OPTIONS_CHECKBOX_BRIGHT_TEMPLATE"))
+				dndCheckbox:SetAsCheckBox()
+				dndCheckbox:SetPoint("bottomright", f, "bottomright", -126, 23)
+				dndCheckbox.tooltip = Loc["STRING_KEYSTONE_DND_TOOLTIP"]
+				dndCheckbox.Text = dndCheckbox:CreateFontString("$parentText", "overlay", "GameFontNormal")
+				dndCheckbox.Text:SetText(Loc["STRING_ENABLE_DO_NOT_DISTURB"])
+				dndCheckbox.Text:SetPoint("left", dndCheckbox.widget, "right", 5, 0)
+				detailsFramework:SetFontSize(dndCheckbox.Text, 10)
+
+				---@type df_radiooptions[]
+				local mainTabSelectorRadioOptions = {{
+						name = "Details!",
+						set = function()end,
+						param = "details",
+						get = function()end,
+						texture = [[Interface\AddOns\Details\images\minimap]],
+						texcoord = {0, 1, 0, 1},
+						mask = nil,
+						width = 20,
+						height = 20,
+						text_size = 12,
+						callback = selectSection,
+					}}
+
+				if (_G.BigWigsLoader) then
+					table.insert(mainTabSelectorRadioOptions, {
+						name = "BigWigs", --localize-me
+						set = function()end,
+						param = "bigwigs",
+						get = function()end,
+						texture = [[Interface\AddOns\BigWigs\Media\Icons\minimap_raid.tga]],
+						texcoord = {0, 1, 0, 1},
+						mask = nil,
+						width = 20,
+						height = 20,
+						text_size = 12,
+						callback = selectSection,
+					})
+				end
+
+				if (_G.AstralKeys) then
+					table.insert(mainTabSelectorRadioOptions, {
+						name = "Astral Keys", --localize-me
+						set = function()end,
+						param = "astralkeys",
+						get = function()end,
+						texture = [[Interface\AddOns\AstralKeys\Media\Astral_minimap.tga]],
+						texcoord = {0, 1, 0, 1},
+						mask = nil,
+						width = 20,
+						height = 20,
+						text_size = 12,
+						callback = selectSection,
+					})
+				end
+
+				---@type df_framelayout_options
+				local radioGroupLayout = {
+					min_width = 50,
+					height = 30,
+					start_x = 5,
+					start_y = -5,
+					offset_y = 35,
+					icon_offset_x = 5,
+					amount_per_line = 1,
+					is_vertical = false,
+					grow_down = true,
+				}
+
+				local radioGroupSettings = {
+					--backdrop = {},
+					--backdrop_color = {0, 0, 0, 0},
+					--backdrop_border_color = {0, 0, 0, 0},
+					rounded_corner_preset = {
+						color = {.075, .075, .075, 1},
+						border_color = {.2, .2, .2, 1},
+						roundness = 8,
+					},
+					checked_texture = [[Interface\BUTTONS\UI-CheckBox-Check]],
+					checked_texture_offset_x = 0,
+					checked_texture_offset_y = 0,
+
+					on_create_checkbox = function(radioGroup, checkBox)
+						local icon = checkBox.Icon.widget
+						local selectedTexture = checkBox:CreateTexture(checkBox:GetName() .. "SelectedTexture", "border")
+						selectedTexture:SetTexture([[Interface\ExtraButton\Default]])
+						selectedTexture:SetTexCoord(155/256, 256/256, 40/128, 87/128)
+						selectedTexture:SetSize(150, 47)
+						selectedTexture:SetVertexColor(1, 1, 1, 0.834)
+						selectedTexture:SetPoint("topleft", icon, "topright", -5, -1)
+						selectedTexture:SetPoint("bottomleft", icon, "bottomright", -5, 1)
+						checkBox.SelectedTexture = selectedTexture
+						checkBox.SelectedTexture:Hide()
+					end,
+
+					on_click_option = function(radioGroup, checkBox, fixedParam, optionId)
+						local radioCheckboxes = radioGroup:GetAllCheckboxes()
+						for i = 1, #radioCheckboxes do
+							local thisCheckBox = radioCheckboxes[i]
+							thisCheckBox.SelectedTexture:Hide()
+							selectAddonFrame.currentSelected = fixedParam
+						end
+					end
+				}
+
+				---@type df_radiogroup
+				local selectAddonRadioGroup = detailsFramework:CreateRadioGroup(selectAddonFrame, mainTabSelectorRadioOptions, "$parentSelector", radioGroupSettings, radioGroupLayout)
+				selectAddonRadioGroup:SetPoint("topleft", selectAddonFrame, "topleft", 2, -30)
+				selectAddonRadioGroup:SetBackdrop(nil)
+
+				--okay button to confirm
+				local okayButton = detailsFramework:CreateButton(selectAddonFrame, function()
+					selectAddonFrame:Hide()
+					Details.slashk_addon = selectAddonFrame.currentSelected
+					end, 64, 20, "Okay")
+				okayButton:SetPoint("bottom", selectAddonFrame, "bottom", 0, 30)
+				okayButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+
+				local foundAdded = false
+
+				for i = 1, #mainTabSelectorRadioOptions do
+					local thisCheckBox = mainTabSelectorRadioOptions[i]
+					local param = thisCheckBox.param
+					if (param == Details.slashk_addon) then
+						selectAddonRadioGroup:Select(i)
+						foundAdded = true
+						break
+					end
+				end
+
+				if (not foundAdded) then
+					selectAddonRadioGroup:Select(1)
+					Details.slashk_addon = "details"
+				end
+
+				if (not Details.slashk_addon_first) then
+					if (_G.BigWigsLoader or _G.AstralKeys) then
+						--selectAddonFrame:Show()
+						--Details.slashk_addon_first = true
+					end
+				end
+
+				selectAddonFrame.currentSelected = Details.slashk_addon
+
+				local scaleBar = detailsFramework:CreateScaleBar(f, Details.keystone_frame)
+				scaleBar:SetAlpha(0.5)
+				scaleBar.label:AdjustPointsOffset(-8, 0)
 				f:SetScale(Details.keystone_frame.scale)
 
-				local statusBar = DetailsFramework:CreateStatusBar(f)
+				local statusBar = detailsFramework:CreateStatusBar(f)
 				statusBar.text = statusBar:CreateFontString(nil, "overlay", "GameFontNormal")
 				statusBar.text:SetPoint("left", statusBar, "left", 5, 0)
-				statusBar.text:SetText("By Terciob | From Details! Damage Meter|Built with Details! Framework | Data from Open Raid Library")
-				DetailsFramework:SetFontSize(statusBar.text, 11)
-				DetailsFramework:SetFontColor(statusBar.text, "gray")
+				statusBar.text:SetText("By Terciob | From Details! Damage Meter")
+				detailsFramework:SetFontSize(statusBar.text, 12)
+				detailsFramework:SetFontColor(statusBar.text, "gray")
 
-				--header
-				local headerTable = {
-					{text = "Class", width = 40, canSort = true, dataType = "number", order = "DESC", offset = 0},
-					{text = "Player Name", width = 140, canSort = true, dataType = "string", order = "DESC", offset = 0},
-					{text = "Level", width = 60, canSort = true, dataType = "number", order = "DESC", offset = 0, selected = true},
-					{text = "Dungeon", width = 240, canSort = true, dataType = "string", order = "DESC", offset = 0},
-					--{text = "Classic Dungeon", width = 120, canSort = true, dataType = "string", order = "DESC", offset = 0},
-					{text = "Mythic+ Rating", width = 100, canSort = true, dataType = "number", order = "DESC", offset = 0},
+				local requestFromGuildButton = detailsFramework:CreateButton(f, function()
+					local guildName = GetGuildInfo("player")
+					if (guildName) then
+						f:RegisterEvent("GUILD_ROSTER_UPDATE")
+
+						C_Timer.NewTicker(1, function()
+							f:RefreshData()
+						end, 30)
+
+						C_Timer.After(30, function()
+							f:UnregisterEvent("GUILD_ROSTER_UPDATE")
+						end)
+						C_GuildInfo.GuildRoster()
+
+						openRaidLib.RequestKeystoneDataFromGuild()
+					end
+				end, 100, 22, Loc["STRING_KEYSTONE_REQUEST_FROM_GUILD"])
+				requestFromGuildButton:SetPoint("bottomleft", statusBar, "topleft", 2, 2)
+				requestFromGuildButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+				requestFromGuildButton:SetIcon("UI-RefreshButton", 20, 20, "overlay", {0, 1, 0, 1}, "lawngreen")
+				requestFromGuildButton:SetFrameLevel(f:GetFrameLevel()+5)
+				f.RequestFromGuildButton = requestFromGuildButton
+
+				local recentPlayersFrame = CreateFrame("frame", nil, f, "BackdropTemplate")
+				recentPlayersFrame:SetPoint("bottomleft", footer, "topleft", 0, 0)
+				recentPlayersFrame:SetPoint("bottomright", footer, "topright", 0, 0)
+				recentPlayersFrame:SetHeight(102)
+				detailsFramework:ApplyStandardBackdrop(recentPlayersFrame)
+				recentPlayersFrame:SetBackdropBorderColor(0, 0, 0, 0)
+				f.RecentPlayersFrame = recentPlayersFrame
+
+				recentPlayersFrame.Title = recentPlayersFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				recentPlayersFrame.Title:SetPoint("bottomleft", recentPlayersFrame, "topleft", 3, 3)
+				recentPlayersFrame.Title:SetText(Loc["STRING_RECENT_PLAYERS"])
+				recentPlayersFrame:SetAlpha(0.834)
+				detailsFramework:SetFontSize(recentPlayersFrame.Title, 12)
+
+				local backgroundGradientTexture = detailsFramework:CreateTexture(recentPlayersFrame, {gradient = "vertical", fromColor = {0, 0, 0, 0.3}, toColor = {0, 0, 0, 0}}, 1, 60, "artwork", {0, 1, 0, 1})
+				backgroundGradientTexture:SetPoint("bottomleft", recentPlayersFrame, "bottomleft", 0, 0)
+				backgroundGradientTexture:SetPoint("bottomright", recentPlayersFrame, "bottomright", 0, 0)
+
+				--grid scroll box for pick an aura and add it to tracking list of black list
+				---@type df_gridscrollbox_options
+				local gridScrollBoxOptions = {
+					width = recentPlayersFrame:GetWidth() - 24,
+					height = recentPlayersFrame:GetHeight() - 6,
+					line_amount = 3,
+					line_height = 32,
+					columns_per_line = 5,
+					vertical_padding = 2,
+					horizontal_padding = 2,
 				}
+
+				local allRecentFriendsButtons = {}
+
+				---@class recent_friend_button : df_button
+				---@field specIcon texture
+				---@field roleIcon texture
+				---@field playerName fontstring
+				---@field activityType fontstring
+				---@field addToFriendsButton df_button
+				---@field runId number
+
+				local openScoreBoardAtRunId = function(button)
+					local dfButton = button.MyObject
+					local runId = dfButton.runId
+					if (runId) then
+						DetailsMythicPlus.Open(runId)
+					end
+				end
+
+				local onEnterRecentButton = function(self)
+					local dfButton = self.MyObject
+					GameCooltip:Preset(2)
+					GameCooltip:SetOwner(self)
+					GameCooltip:AddLine(Loc["STRING_KEYSTONE_CLICK_TO_VIEW_SCOREBOARD"])
+					if (not DetailsMythicPlus) then
+						--GameCooltip:AddLine("Install 'Details! Damage Meter Mythic+' addon.", "", 1, "#FFF33030")
+						GameCooltip:AddLine(Loc["STRING_KEYSTONE_NO_MYTHICPLUS_ADDON"], "", 1, "#FFF33030")
+						GameCooltip:AddLine(noMythicPlusAddonMsg, "", 1, "#FFFFFF00")
+						GameCooltip:SetOption("FixedWidth", 320)
+					end
+					GameCooltip:Show()
+				end
+
+				local onLeaveRecentButton = function(self)
+					GameCooltip:Hide()
+				end
+
+				--each line has more than 1 selection button, this function creates these buttons on each line
+				local createRecentPlayerButton = function(line, lineIndex, columnIndex)
+					local width = gridScrollBoxOptions.width / gridScrollBoxOptions.columns_per_line - 1
+					local height = gridScrollBoxOptions.line_height
+					if (not height) then
+						height = 30
+					end
+
+					---@type recent_friend_button
+					local button = detailsFramework:CreateButton(line, openScoreBoardAtRunId, width, 32)
+					button.textsize = 11
+					button:SetAlpha(0.934)
+
+					detailsFramework:ApplyStandardBackdrop(button)
+					local r, g, b = detailsFramework:GetDefaultBackdropColor()
+					button.__background:SetColorTexture(r, g, b, 0.2)
+					button:SetBackdropBorderColor(0, 0, 0, 0.25)
+
+					button:SetHook("OnEnter", onEnterRecentButton)
+					button:SetHook("OnLeave", onLeaveRecentButton)
+
+					allRecentFriendsButtons[#allRecentFriendsButtons+1] = button
+
+					local iconSize = 14
+
+					--specIcon
+					local specIcon = button:CreateTexture(nil, "overlay")
+					specIcon:SetSize(iconSize, iconSize)
+					specIcon:SetPoint("topleft", button.widget, "topleft", 3, -3)
+					specIcon:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]]) --placeholder icon
+
+					--role icon
+					local roleIcon = button:CreateTexture(nil, "overlay")
+					roleIcon:SetSize(iconSize, iconSize)
+					roleIcon:SetPoint("left", specIcon, "right", 1, 1)
+					roleIcon:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]]) --placeholder icon
+
+					--player name
+					local playerName = button:CreateFontString(nil, "overlay", "GameFontNormal")
+					playerName:SetPoint("left", roleIcon, "right", 2, 0)
+					playerName:SetText("Player Name") --place holder
+					detailsFramework:SetFontSize(playerName, 10)
+
+					--type
+					local activityType = button:CreateFontString(nil, "overlay", "GameFontNormal")
+					activityType:SetPoint("bottomleft", button.widget, "bottomleft", 3, 1)
+					activityType:SetText("Activity Type") --place holder
+					detailsFramework:SetFontSize(activityType, 9)
+
+					local addFriendButtonSize = 16
+
+					--add to friends list
+					local addToFriendsButton = detailsFramework:CreateButton(button.widget, function(self)
+						local dfButton = self.MyObject
+
+						--open the add friend dialog
+						FriendsFrameAddFriendButton_OnClick()
+						--write the friend name in the editbox
+						AddFriendNameEditBox:SetText(dfButton.playerName)
+						--click on the accept button
+						AddFriendEntryFrameAcceptButton:Click()
+
+						C_Timer.After(1, function()
+							local info = C_FriendList.GetFriendInfo(dfButton.playerName)
+							if (info and info.name) then
+								local timeWhen = detailsFramework.string.FormatDateByLocale(dfButton.recentPlayerTable[2], false)
+								local finalText = ""
+
+								local challengeMapId, level, onTime, runId = dfButton.recentPlayerTable[8], dfButton.recentPlayerTable[9], dfButton.recentPlayerTable[10], dfButton.recentPlayerTable[11]
+								local challengeMapInfo = LIB_OPEN_RAID_MYTHIC_PLUS_MAPINFO[challengeMapId]
+								if (challengeMapInfo) then
+									local zoneName, challengeMapId, timeLimit, texture, textureBackground, mapId, teleportSpellId = unpack(challengeMapInfo)
+									local shortName = detailsFramework.string.Acronym(zoneName)
+									finalText = shortName .. " +" .. level
+								end
+
+								C_FriendList.SetFriendNotes(dfButton.playerName, "Added from Details! /keys.\n" .. timeWhen .. " Key: " .. finalText)
+							end
+						end)
+--[=[
+recentPlayerTable = {
+	["1"] = "mplus",
+	[2] = 1755048825,
+	["3"] = "Yaxa",
+	[4] = 1,
+	[5] = 72,
+	[6] = 2441,
+	[7] = 1,
+	[8] = 391,
+	[9] = 2,
+	["10"] = true,
+	[11] = 173,
+}
+--]=]
+
+					end, addFriendButtonSize, addFriendButtonSize)
+					addToFriendsButton:SetText("")
+					addToFriendsButton:SetPoint("bottomright", button, "bottomright", -2, 0)
+					addToFriendsButton.Texture = addToFriendsButton:CreateTexture(nil, "overlay")
+					addToFriendsButton.Texture:SetAllPoints()
+					addToFriendsButton.Texture:SetTexture("Interface\\FriendsFrame\\UI-Toast-FriendRequestIcon")
+					addToFriendsButton.Texture:SetTexCoord(.1, .9, .1, .9)
+					addToFriendsButton.Texture:SetVertexColor(detailsFramework:ParseColors("#FFF5F520"))
+
+					addToFriendsButton.tooltip = Loc["STRING_KEYSTONE_ADD_TO_FRIENDS_TOOLTIP"]
+
+					--[=[
+					local addToBnetButton = detailsFramework:CreateButton(button.widget, function()
+						--add the player to the bnet friends list
+					end, addFriendButtonSize, addFriendButtonSize)
+					addToBnetButton:SetText("")
+					addToBnetButton:SetPoint("right", addToFriendsButton, "left", 0, 0)
+					addToBnetButton.Texture = addToBnetButton:CreateTexture(nil, "overlay")
+					addToBnetButton.Texture:SetAllPoints()
+					addToBnetButton.Texture:SetTexture("Interface\\FriendsFrame\\UI-Toast-FriendRequestIcon")
+					addToBnetButton.Texture:SetTexCoord(.1, .9, .1, .9)
+					addToBnetButton.Texture:SetVertexColor(detailsFramework:ParseColors("#FF46A0D4"))
+					--]=]
+
+					local highlightTexture = button:CreateTexture(nil, "highlight")
+					highlightTexture:SetAllPoints()
+					highlightTexture:SetTexture([[Interface\QuestFrame\UI-QuestTitleHighlight]])
+					highlightTexture:SetBlendMode("ADD")
+					highlightTexture:SetAlpha(0.5)
+					highlightTexture:SetDesaturation(0.8)
+
+					--set the children members
+					button.specIcon = specIcon
+					button.roleIcon = roleIcon
+					button.playerName = playerName
+					button.activityType = activityType
+					button.addToFriendsButton = addToFriendsButton
+					--button.addToBnetButton = addToBnetButton
+
+					return button
+				end
+
+				local roleCoords = {
+					["DAMAGER"] = {0, 0.25, 0, 0.5},
+					["HEALER"] = {0.25, 0.5, 0, 0.5},
+					["TANK"] = {0.5, 0.75, 0, 0.5},
+					["NONE"] = {0.75, 1, 0, 0.5},
+				}
+
+				---when the scroll is refreshing the line, the line will call this function for each selection button on it
+				---@param dfButton df_button
+				---@param recentPlayerTable table
+				local refreshRecentFriends = function(dfButton, recentPlayerTable)
+					---@cast dfButton recent_friend_button
+					local activityType, timeWhen, playerName, classId, specId, mapId, playedTogetherAmount, param1, param2, param3, param4 = Details:UnpackRecentPlayerTable(recentPlayerTable)
+
+					local mapInfo = C_Map.GetMapInfo(mapId)
+
+					--character name
+					dfButton.playerName:SetText(detailsFramework:AddClassColorToText(detailsFramework:RemoveRealmName(playerName), detailsFramework.ClassIndexToFileName[classId]))
+
+					--spec icon
+					dfButton.roleIcon:SetTexture("")
+
+					if (specId > 20) then
+						local specIcon, L, R, T, B = Details:GetSpecIcon(specId, false)
+						dfButton.specIcon:SetTexture(specIcon)
+						dfButton.specIcon:SetTexCoord(L, R, T, B)
+
+						--update role icon
+						local id, name, description, icon, role, classFile, className = GetSpecializationInfoByID(specId)
+						local texture L, R, T, B = detailsFramework:GetRoleIconAndCoords(role)
+
+						dfButton.roleIcon:SetTexture([[Interface\LFGFRAME\RoleIcons]])
+						dfButton.roleIcon:SetTexCoord(unpack(roleCoords[role]))
+
+					elseif (classId > 0) then
+						local classIcon, L, R, T, B = Details:GetClassIcon(detailsFramework.ClassIndexToFileName[classId], false)
+						dfButton.specIcon:SetTexture(classIcon)
+						dfButton.specIcon:SetTexCoord(L, R, T, B)
+					else
+						dfButton.specIcon:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]])
+					end
+
+					if (activityType == "mplus") then
+						local challengeMapId, level, onTime, runId = param1, param2, param3, param4
+						local challengeMapInfo = LIB_OPEN_RAID_MYTHIC_PLUS_MAPINFO[challengeMapId]
+						if (challengeMapInfo) then
+							local zoneName, challengeMapId, timeLimit, texture, textureBackground, mapId, teleportSpellId = unpack(challengeMapInfo)
+							local shortName = detailsFramework.string.Acronym(zoneName)
+							local finalText = shortName .. " +" .. level
+
+							local bAddAfterText, bAddSpace = false, true
+							local textureInfo = detailsFramework:CreateTextureInfo(texture, 18, 18, 0, 1, 0, 1, 256, 128)
+							finalText = detailsFramework:AddTextureToText(finalText, textureInfo, bAddSpace, bAddAfterText)
+
+							local onTimeColor = onTime and "FFA8E7A8" or "FFD69A9A"
+
+							local ignoreYear = true
+							local date = detailsFramework.string.FormatDateByLocale(timeWhen, ignoreYear)
+
+							finalText = finalText .. "   |cFFFFFF00" .. date .. "|r"
+
+							dfButton.activityType:SetText("|c" .. onTimeColor .. finalText .. "|r")
+							dfButton.runId = runId
+							dfButton.addToFriendsButton.playerName = playerName
+						else
+							dfButton.activityType:SetText("M+")
+						end
+					end
+
+					dfButton.recentPlayerTable = recentPlayerTable
+					dfButton.addToFriendsButton.recentPlayerTable = recentPlayerTable
+				end
+
+				local tbdData = {} --~grid
+				local gridScrollBox = detailsFramework:CreateGridScrollBox(recentPlayersFrame, "DetailsMythicPlusRecentPlayersGrid", refreshRecentFriends, tbdData, createRecentPlayerButton, gridScrollBoxOptions)
+				recentPlayersFrame.GridScrollBox = gridScrollBox
+				gridScrollBox:SetPoint("topleft", recentPlayersFrame, "topleft", 0, 0)
+				gridScrollBox:SetBackdrop({})
+				gridScrollBox:SetBackdropColor(0, 0, 0, 0)
+				gridScrollBox:SetBackdropBorderColor(0, 0, 0, 0)
+				gridScrollBox.__background:Hide()
+				gridScrollBox:Show()
 
 				local headerOnClickCallback = function(headerFrame, columnHeader)
 					f.RefreshData()
@@ -2017,8 +2910,8 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				local headerOptions = {
 					padding = 1,
 					header_backdrop_color = {.3, .3, .3, .8},
-					header_backdrop_color_selected = {.5, .5, .5, 0.8},
-					use_line_separators = true,
+					header_backdrop_color_selected = {.9, .9, 0, 1},
+					use_line_separators = false,
 					line_separator_color = {.1, .1, .1, .5},
 					line_separator_width = 1,
 					line_separator_height = CONST_WINDOW_HEIGHT-30,
@@ -2026,13 +2919,16 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					header_click_callback = headerOnClickCallback,
 				}
 
-				f.Header = DetailsFramework:CreateHeader(f, headerTable, headerOptions, "DetailsKeystoneInfoFrameHeader")
-				f.Header:SetPoint("topleft", f, "topleft", 5, -25)
+				f.Header = detailsFramework:CreateHeader(f, keystoneHeaderTable, headerOptions, "DetailsKeystoneInfoFrameHeader")
+				f.Header:SetPoint("topleft", f, "topleft", 2, -25)
 
-				--scroll
+				--scroll -~refresh
 				local refreshScrollLines = function(self, data, offset, totalLines)
 					local RaiderIO = _G.RaiderIO
 					local faction = UnitFactionGroup("player") --this can get problems with 9.2.5 cross faction raiding
+
+					--for i = 1, GetNumGuildMembers() do
+					--end
 
 					for i = 1, totalLines do
 						local index = i + offset
@@ -2041,7 +2937,14 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 						if (unitTable) then
 							local line = self:GetLine(i)
 
-							local unitName, level, mapID, challengeMapID, classID, rating, mythicPlusMapID, classIconTexture, iconTexCoords, mapName, inMyParty, isOnline, isGuildMember = unpack(unitTable)
+							local unitName, level, mapID, challengeMapID, classID, rating, mythicPlusMapID, classIconTexture, iconTexCoords, mapName, inMyParty, isOnline, isGuildMember, specId = unpack(unitTable)
+							local challengeMapInfo = LIB_OPEN_RAID_MYTHIC_PLUS_MAPINFO[challengeMapID]
+
+							line.unitName = unitName
+
+							if (mapName == "") then
+								mapName = "user need update details!"
+							end
 
 							local rioProfile
 							if (RaiderIO) then
@@ -2059,20 +2962,144 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 								end
 							end
 
-							line.icon:SetTexture(classIconTexture)
-							local L, R, T, B = unpack(iconTexCoords)
-							line.icon:SetTexCoord(L+0.02, R-0.02, T+0.02, B-0.02)
+							local unitRole = detailsFramework.UnitGroupRolesAssigned(unitName)
+							if (specId and specId > 20) then
+								local id, name, description, icon, role, classFile, className = GetSpecializationInfoByID(specId)
+								unitRole = role
+								local specIcon, L, R, T, B = Details:GetSpecIcon(specId, false)
+								line.icon:SetTexture(specIcon)
+								line.icon:SetTexCoord(L, R, T, B)
+							else
+								line.icon:SetTexture(classIconTexture)
+								local L, R, T, B = unpack(iconTexCoords)
+								line.icon:SetTexCoord(L+0.02, R-0.02, T+0.02, B-0.02)
+							end
+
+							local role = unitRole
+							if (role == "DAMAGER") then
+								line.roleIcon:SetAtlas("GM-icon-role-dps")
+							elseif (role == "HEALER") then
+								line.roleIcon:SetAtlas("GM-icon-role-healer")
+							elseif (role == "TANK") then
+								line.roleIcon:SetAtlas("GM-icon-role-tank")
+							else
+								line.roleIcon:SetColorTexture(.1, .1, .1, .3)
+							end
 
 							--remove the realm name from the player name (if any)
-							local unitNameNoRealm = DetailsFramework:RemoveRealmName(unitName)
+							local unitNameNoRealm = detailsFramework:RemoveRealmName(unitName)
 							line.playerNameText.text = unitNameNoRealm
 							line.keystoneLevelText.text = level
-							line.dungeonNameText.text = mapName
-							DetailsFramework:TruncateText(line.dungeonNameText, 240)
+
+							local shortMapName = mapName
+							if (mapName and mapName:find(":")) then
+								shortMapName = mapName:match(":%s*(.+)")
+							end
+
+							local mapTexture = challengeMapInfo and challengeMapInfo[4]
+							if (mapTexture) then
+								local bAddAfterText, bAddSpace = false, true
+								local textureInfo = detailsFramework:CreateTextureInfo(mapTexture, 20, 20, 0, 1, 0, 1, 256, 128)
+								local textWithTexture = detailsFramework:AddTextureToText(shortMapName, textureInfo, bAddSpace, bAddAfterText)
+								line.dungeonNameText.text = textWithTexture
+							else
+								line.dungeonNameText.text = shortMapName
+							end
+
+							detailsFramework:TruncateText(line.dungeonNameText, 150)
 							line.classicDungeonNameText.text = "" --mapNameChallenge
-							DetailsFramework:TruncateText(line.classicDungeonNameText, 120)
+							detailsFramework:TruncateText(line.classicDungeonNameText, 120)
 							line.inMyParty = inMyParty > 0
 							line.inMyGuild = isGuildMember
+
+							local likesGiven = DetailsMythicPlus and DetailsMythicPlus.GetRunIdLikesGivenByPlayerSelf and DetailsMythicPlus.GetRunIdLikesGivenByPlayerSelf(unitName) or {}
+							line.LikesGivenText:SetText(#likesGiven)
+
+							local refreshRunDropdown = function(self)
+								local options = {}
+								local unitName = self.playerName
+								local runIdsWhereLikesWereGiven = DetailsMythicPlus and DetailsMythicPlus.GetRunIdLikesGivenByPlayerSelf and DetailsMythicPlus.GetRunIdLikesGivenByPlayerSelf(unitName)
+								if (runIdsWhereLikesWereGiven and #runIdsWhereLikesWereGiven > 0) then
+									for j = 1, #runIdsWhereLikesWereGiven do
+										local runId = runIdsWhereLikesWereGiven[j]
+
+										--dumpt(DetailsMythicPlus.GetRunIdLikesGivenByPlayerSelf("Anseis")) --development debug
+
+										---@type dropdownoption
+										local option = {
+											label = DetailsMythicPlus.GetSimpleDescription(runId),
+											onclick = function()
+												DetailsMythicPlus.Open(runId)
+											end
+										}
+										options[#options + 1] = option
+									end
+								end
+
+								return options
+							end
+
+							if (not line.selectRunDropdown:IsOpen()) then
+								line.selectRunDropdown:SetFunction(refreshRunDropdown)
+								line.selectRunDropdown.playerName = unitName
+								line.selectRunDropdown:Refresh()
+							end
+
+							if (challengeMapInfo) then
+								local texture = LIB_OPEN_RAID_MYTHIC_PLUS_MAPINFO[challengeMapID][4]
+								local spellId = LIB_OPEN_RAID_MYTHIC_PLUS_MAPINFO[challengeMapID][7]
+
+								if (spellId and line.teleportButton.spellId ~= spellId) then
+									local spellCooldownInfo = GetSpellCooldown(spellId)
+                					local start = spellCooldownInfo.startTime
+									local cooldownDuration = spellCooldownInfo.duration
+
+									line.teleportButton.Icon:SetTexture(texture)
+									local haveSet, errorText = pcall(function()
+										if ((start and start >= 1) or not C_SpellBook.IsSpellInSpellBook(spellId)) then
+											line.blockTeleporterButton:Show()
+											line.blockTeleporterButton.Text:SetText("")
+											line.blockTeleporterButton.Icon:SetTexture("")
+
+											if (not InCombatLockdown()) then
+												line.teleportButton:Show()
+												line.teleportButton:SetParent(line)
+
+												if (C_SpellBook.IsSpellInSpellBook(spellId)) then
+													line.teleportButton.Text:SetText(detailsFramework:IntegerToCooldownTime((start + cooldownDuration) - GetTime()))
+												else
+													line.teleportButton.Text:SetText("")
+													line.teleportButton.Icon:SetTexture("")
+													line.blockTeleporterButton.Text:SetText(Loc["STRING_TELEPORT"])
+													line.blockTeleporterButton.Icon:SetTexture(texture)
+												end
+											end
+
+											return --get out from pcall
+										end
+
+										if (not InCombatLockdown()) then
+											line.teleportButton:Show()
+											line.teleportButton:SetAttribute("spell", spellId)
+											line.teleportButton.spellId = spellId
+											line.teleportButton.Text:SetText(Loc["STRING_TELEPORT"])
+											line.teleportButton:SetParent(line)
+											line.blockTeleporterButton:Hide()
+										else
+											line.teleportButton.Text:SetText("In Combat") --is legal?
+											line.blockTeleporterButton.Text:SetText("")
+											line.blockTeleporterButton.Icon:SetTexture("")
+											line.blockTeleporterButton:Show()
+										end
+									end)
+
+									if (not haveSet) then
+										print("ERROR:", errorText)
+									end
+								end
+							else
+								--line.teleportButton:SetAttribute("spell", nil)
+							end
 
 							if (rioProfile) then
 								local score = rioProfile.currentScore or 0
@@ -2112,10 +3139,37 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 							end
 						end
 					end
+
+					local likesGivenHeader = f.Header:GetHeaderColumnByName("likesGiven")
+					if (likesGivenHeader and not likesGivenHeader.helpButton) then
+						local helpButton = CreateFrame("button", "$parentHelpButton", likesGivenHeader, "BackdropTemplate")
+						helpButton:SetSize(24, 24)
+						helpButton:SetPoint("right", likesGivenHeader, "right", -2, 0)
+						helpButton:SetNormalTexture("Interface/Buttons/AdventureGuideMicrobuttonAlert")
+						helpButton:SetHighlightTexture("Interface/Buttons/AdventureGuideMicrobuttonAlert")
+						helpButton:SetPushedTexture("Interface/Buttons/AdventureGuideMicrobuttonAlert")
+						helpButton:SetScript("OnEnter", function()
+							GameCooltip:Preset(2)
+							GameCooltip:SetOwner(helpButton, "bottom", "top", 0, 5)
+							GameCooltip:AddLine(Loc["STRING_KEYSTONE_LIFETIME_LIKES_YOU_GAVE"], "", 1)
+							GameCooltip:Show()
+						end)
+						helpButton:SetScript("OnLeave", function()
+							GameCooltip:Hide()
+						end)
+						likesGivenHeader.helpButton = helpButton
+					end
 				end
 
-				local scrollFrame = DetailsFramework:CreateScrollBox(f, "$parentScroll", refreshScrollLines, {}, CONST_WINDOW_WIDTH-10, CONST_WINDOW_HEIGHT-70, CONST_SCROLL_LINE_AMOUNT, CONST_SCROLL_LINE_HEIGHT)
-				DetailsFramework:ReskinSlider(scrollFrame)
+				local scrollFrame = detailsFramework:CreateScrollBox(f, "$parentScroll", refreshScrollLines, {}, CONST_WINDOW_WIDTH-10, CONST_WINDOW_HEIGHT-221, CONST_SCROLL_LINE_AMOUNT, CONST_SCROLL_LINE_HEIGHT)
+				scrollFrame:SetBackdropBorderColor(0, 0, 0, 0)
+				detailsFramework:ReskinSlider(scrollFrame)
+				scrollFrame.ScrollBar:AdjustPointsOffset(-23, -1)
+				scrollFrame.ScrollBar:SetFrameLevel(scrollFrame:GetFrameLevel() + 5)
+				scrollFrame.ScrollBar:SetHeight(scrollFrame.ScrollBar:GetHeight() - 20)
+				local point1, frame1, point2, offSetX, offSetY = scrollFrame.ScrollBar:GetPoint(2)
+				scrollFrame.ScrollBar:SetPoint(point1, frame1, point2, offSetX, offSetY + 22)
+
 				scrollFrame:SetPoint("topleft", f.Header, "bottomleft", -1, -1)
 				scrollFrame:SetPoint("topright", f.Header, "bottomright", 0, -1)
 
@@ -2138,6 +3192,10 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					end
 				end
 
+				local refreshDropdown = function(self)
+					return {}
+				end
+
 				local createLineForScroll = function(self, index)
 					local line = CreateFrame("frame", "$parentLine" .. index, self, "BackdropTemplate")
 					line:SetPoint("topleft", self, "topleft", 1, -((index-1) * (CONST_SCROLL_LINE_HEIGHT + 1)) - 1)
@@ -2146,7 +3204,7 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					line:SetBackdrop({bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true})
 					line:SetBackdropColor(unpack(backdrop_color))
 
-					DetailsFramework:Mixin(line, DetailsFramework.HeaderFunctions)
+					detailsFramework:Mixin(line, detailsFramework.HeaderFunctions)
 
 					line:SetScript("OnEnter", lineOnEnter)
 					line:SetScript("OnLeave", lineOnLeave)
@@ -2155,27 +3213,62 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					local icon = line:CreateTexture("$parentClassIcon", "overlay")
 					icon:SetSize(CONST_SCROLL_LINE_HEIGHT - 2, CONST_SCROLL_LINE_HEIGHT - 2)
 
+					local roleIcon = line:CreateTexture("$parentRoleIcon", "overlay")
+					roleIcon:SetSize(CONST_SCROLL_LINE_HEIGHT+2, CONST_SCROLL_LINE_HEIGHT+2)
+					roleIcon:SetPoint("left", icon, "right", -1, 0)
+
 					--player name
-					local playerNameText = DetailsFramework:CreateLabel(line)
+					local playerNameText = detailsFramework:CreateLabel(line, "")
 
 					--keystone level
-					local keystoneLevelText = DetailsFramework:CreateLabel(line)
+					local keystoneLevelText = detailsFramework:CreateLabel(line, "")
 
 					--dungeon name
-					local dungeonNameText = DetailsFramework:CreateLabel(line)
+					local dungeonNameText = detailsFramework:CreateLabel(line, "")
+					detailsFramework:SetFontSize(dungeonNameText, 10)
 
 					--classic dungeon name
-					local classicDungeonNameText = DetailsFramework:CreateLabel(line)
+					local classicDungeonNameText = detailsFramework:CreateLabel(line, "")
 
 					--player rating
-					local ratingText = DetailsFramework:CreateLabel(line)
+					local ratingText = detailsFramework:CreateLabel(line, "")
+
+					--cast teleport button
+					local teleportButton = buttonsCreated[index]
+					teleportButton:SetBackdrop({bgFile = "Interface\\AddOns\\Details\\images\\background", tile = true, tileSize = 16, insets = {left = 0, right = 0, top = 0, bottom = 0}})
+					teleportButton:SetBackdropColor(0.2, 0.2, 0.2, 0.8)
+
+					local blockTeleporterButton = CreateFrame("button", "$parentBlockTeleporterButton", line)
+					blockTeleporterButton:SetAllPoints(teleportButton)
+					blockTeleporterButton:SetFrameLevel(teleportButton:GetFrameLevel() + 10)
+					blockTeleporterButton:EnableMouse(true)
+
+					blockTeleporterButton.Icon = blockTeleporterButton:CreateTexture(nil, "overlay")
+					blockTeleporterButton.Icon:SetSize(CONST_SCROLL_LINE_HEIGHT - 2, CONST_SCROLL_LINE_HEIGHT - 2)
+					blockTeleporterButton.Icon:SetPoint("left", blockTeleporterButton, "left", 2, 0)
+					blockTeleporterButton.Icon:SetAlpha(0.3)
+					blockTeleporterButton.Icon:SetDesaturation(0.8)
+					detailsFramework:SetMask(blockTeleporterButton.Icon, [[Interface\AddOns\Details\images\masks\portal_mask.tga]])
+					blockTeleporterButton.Text = blockTeleporterButton:CreateFontString(nil, "overlay", "GameFontNormal")
+					blockTeleporterButton.Text:SetPoint("left", blockTeleporterButton.Icon, "right", 2, 0)
+					blockTeleporterButton.Text:SetAlpha(0.3)
+					detailsFramework:SetFontColor(blockTeleporterButton.Text, "gray")
+
+					local likesGivenText = detailsFramework:CreateLabel(line, "")
+					local selectRunDropdown = detailsFramework:CreateDropDown(line, refreshDropdown, 1, 112, 20, "selectRunDropdown", "$parentDropdown", detailsFramework:GetTemplate("dropdown", "OPTIONS_DROPDOWN_TEMPLATE"))
+					selectRunDropdown.widget:SetFrameLevel(line:GetFrameLevel() + 16)
 
 					line.icon = icon
+					line.roleIcon = roleIcon
 					line.playerNameText = playerNameText
 					line.keystoneLevelText = keystoneLevelText
 					line.dungeonNameText = dungeonNameText
 					line.classicDungeonNameText = classicDungeonNameText
 					line.ratingText = ratingText
+					line.teleportButton = teleportButton
+					line.blockTeleporterButton = blockTeleporterButton
+					line.LikesGivenText = likesGivenText
+					line.selectRunDropdown = selectRunDropdown
 
 					line:AddFrameToHeaderAlignment(icon)
 					line:AddFrameToHeaderAlignment(playerNameText)
@@ -2183,6 +3276,9 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					line:AddFrameToHeaderAlignment(dungeonNameText)
 					--line:AddFrameToHeaderAlignment(classicDungeonNameText)
 					line:AddFrameToHeaderAlignment(ratingText)
+					line:AddFrameToHeaderAlignment(teleportButton)
+					line:AddFrameToHeaderAlignment(likesGivenText)
+					line:AddFrameToHeaderAlignment(selectRunDropdown)
 
 					line:AlignWithHeader(f.Header, "left")
 					return line
@@ -2193,13 +3289,114 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					scrollFrame:CreateLine(createLineForScroll)
 				end
 
-				function f.RefreshData()
+				local recentPlayers = Details:GetRecentPlayers()
+				local recentPlayerCopy = detailsFramework.table.copy({}, recentPlayers)
+				recentPlayers = recentPlayerCopy
+
+				--for i = #recentPlayers, 1, -1 do
+				--	local playerData = recentPlayers[i]
+				--	if (playerData[3] == "fakePlayer1") then
+				--		table.remove(recentPlayers, i)
+				--	end
+				--end
+
+				--table.wipe(recentPlayers)
+				--[=[
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, false, 172}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 171}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 170}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, false, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+					recentPlayers[#recentPlayers+1] = {"mplus", time()-3600, "fakePlayer1", 8, 63, 2526, 2, 402, 6, true, 0}
+				--]=]
+
+				function f.RefreshData() --~refreshdata
 					local newData = {}
 					newData.offlineGuildPlayers = {}
 					local keystoneData = openRaidLib.GetAllKeystonesInfo()
 
+
+
+					f.RecentPlayersFrame.GridScrollBox:SetData(recentPlayers) --Details:GetRecentPlayers()
+					f.RecentPlayersFrame.GridScrollBox:Refresh()
+
+					--need to know if any line has its dropdown open
+					local lines = scrollFrame:GetLines()
+
+					--unit name
+					local unitNameOnLineWithDropdownOpened
+
+					for i = 1, #lines do
+						local dropdown = lines[i].selectRunDropdown
+						if (dropdown:IsOpen()) then
+							unitNameOnLineWithDropdownOpened = lines[i].unitName
+							break
+						end
+					end
+
+					--[=[
+						["Exudragão"] =  {
+							["mapID"] = 2526,
+							["challengeMapID"] = 402,
+							["mythicPlusMapID"] = 0,
+							["rating"] = 215,
+							["classID"] = 13,
+							["level"] = 6,
+						},
+					--]=]
+
+					if (false) then
+						keystoneData["FakePlayer"] =  {
+								["mapID"] = 1763,
+								["challengeMapID"] = 244,
+								["mythicPlusMapID"] = 0,
+								["rating"] = 215,
+								["classID"] = 13,
+								["level"] = 6,
+							}
+						keystoneData["Gimsei"] =  {
+								["mapID"] = 2441, --1763,
+								["challengeMapID"] = 391, --244,
+								["mythicPlusMapID"] = 0,
+								["rating"] = 215,
+								["classID"] = 13,
+								["level"] = 6,
+							}
+						keystoneData["Gimsi"] =  {
+								["mapID"] = 2441, --1763,
+								["challengeMapID"] = 391, --244,
+								["mythicPlusMapID"] = 0,
+								["rating"] = 215,
+								["classID"] = 13,
+								["level"] = 6,
+							}
+						keystoneData["FakePlaywer"] =  {
+								["mapID"] = 1763,
+								["challengeMapID"] = 244,
+								["mythicPlusMapID"] = 0,
+								["rating"] = 215,
+								["classID"] = 13,
+								["level"] = 6,
+							}
+					end
+
 					local guildUsers = {}
 					local totalMembers, onlineMembers, onlineAndMobileMembers = GetNumGuildMembers()
+
+					--[=[
+					local unitsInMyGroup = {
+						[Details:GetFullName("player")] = true,
+					}
+					for i = 1, GetNumGroupMembers() do
+						local unitName = Details:GetFullName("party" .. i)
+						unitsInMyGroup[unitName] = true
+					end
+					--]=]
 
 					--create a string to use into the gsub call when removing the realm name from the player name, by default all player names returned from GetGuildRosterInfo() has PlayerName-RealmName format
 					local realmNameGsub = "%-.*"
@@ -2219,6 +3416,9 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 						end
 					end
 
+					local playersAdded = {}
+
+					--from open raid lib
 					if (keystoneData) then
 						local unitsAdded = {}
 						local isOnline = true
@@ -2228,8 +3428,17 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 							local classIcon = [[Interface\GLUES\CHARACTERCREATE\UI-CharacterCreate-Classes]]
 							local coords = CLASS_ICON_TCOORDS
 							local _, class = GetClassInfo(classId)
+							local specId = keystoneInfo.specID or 0
 
-							local mapName = C_ChallengeMode.GetMapUIInfo(keystoneInfo.mythicPlusMapID) or ""
+							local mapName = C_ChallengeMode.GetMapUIInfo(keystoneInfo.mythicPlusMapID)
+							if (not mapName) then
+								mapName = C_ChallengeMode.GetMapUIInfo(keystoneInfo.challengeMapID)
+							end
+							if (not mapName and keystoneInfo.mapID) then
+								mapName = C_ChallengeMode.GetMapUIInfo(keystoneInfo.mapID)
+							end
+
+							mapName = mapName or "map name not found"
 
 							--local mapInfoChallenge = C_Map.GetMapInfo(keystoneInfo.challengeMapID)
 							--local mapNameChallenge = mapInfoChallenge and mapInfoChallenge.name or ""
@@ -2252,6 +3461,7 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 									isInMyParty,
 									isOnline, --is false when the unit is from the cache
 									isGuildMember, --is a guild member
+									specId,
 									--mapNameChallenge,
 								}
 
@@ -2282,6 +3492,7 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 						end
 					end
 
+
 					--get which column is currently selected and the sort order
 					local columnIndex, order = f.Header:GetSelectedColumn()
 					local sortByIndex = 2
@@ -2289,18 +3500,23 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					--sort by player class
 					if (columnIndex == 1) then
 						sortByIndex = 5
+
 					--sort by player name
 					elseif (columnIndex == 2) then
 						sortByIndex = 1
+
 					--sort by keystone level
 					elseif (columnIndex == 3) then
 						sortByIndex = 2
+
 					--sort by dungeon name
 					elseif (columnIndex == 4) then
 						sortByIndex = 3
+
 					--sort by classic dungeon name
 					--elseif (columnIndex == 5) then
 					--	sortByIndex = 4
+
 					--sort by mythic+ ranting
 					elseif (columnIndex == 5) then
 						sortByIndex = 6
@@ -2316,12 +3532,12 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 					for i = #newData, 1, -1 do
 						local keystoneTable = newData[i]
 						if (not keystoneTable[12]) then
-							tremove(newData, i)
+							table.remove(newData, i)
 							newData.offlineGuildPlayers[#newData.offlineGuildPlayers+1] = keystoneTable
 						end
 					end
 
-					newData.offlineGuildPlayers = DetailsFramework.table.reverse(newData.offlineGuildPlayers)
+					newData.offlineGuildPlayers = detailsFramework.table.reverse(newData.offlineGuildPlayers)
 
 					--put players in the group at the top of the list
 					if (IsInGroup() and not IsInRaid()) then
@@ -2330,7 +3546,7 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 							local keystoneTable = newData[i]
 							if (keystoneTable[11] > 0) then
 								playersInTheParty[#playersInTheParty+1] = keystoneTable
-								tremove(newData, i)
+								table.remove(newData, i)
 							end
 						end
 
@@ -2352,6 +3568,16 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 
 					scrollFrame:SetData(newData)
 					scrollFrame:Refresh()
+
+					if (unitNameOnLineWithDropdownOpened) then
+						for i = 1, #lines do
+							local unitName = lines[i].unitName
+							if (unitName == unitNameOnLineWithDropdownOpened) then
+								lines[i].selectRunDropdown:Open()
+								break
+							end
+						end
+					end
 				end
 
 				function f.OnKeystoneUpdate(unitId, keystoneInfo, allKeystonesInfo)
@@ -2363,19 +3589,53 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				f:SetScript("OnHide", function()
 					openRaidLib.UnregisterCallback(DetailsKeystoneInfoFrame, "KeystoneUpdate", "OnKeystoneUpdate")
 				end)
-			end
 
-			--call an update on the guild roster
-			if (C_GuildInfo and C_GuildInfo.GuildRoster) then
-				C_GuildInfo.GuildRoster()
+				f:SetScript("OnUpdate", function(self, deltaTime)
+					if (not self.lastUpdate) then
+						self.lastUpdate = 0
+					end
+
+					self.lastUpdate = self.lastUpdate + deltaTime
+					if (self.lastUpdate > 3) then
+						self.lastUpdate = 0
+						self.RefreshData()
+					end
+				end)
+
+				f.lastGuildRequest = GetTime()
+				local guildName = GetGuildInfo("player")
+				if (guildName) then
+					f.RequestFromGuildButton:Click()
+				end
 			end
 
 			--show the frame
-			DetailsKeystoneInfoFrame:Show()
+			if (DetailsKeystoneInfoFrame:IsShown()) then
+				DetailsKeystoneInfoFrame:Hide()
+				return
+			else
+				DetailsKeystoneInfoFrame:Show()
+			end
 
 			openRaidLib.RegisterCallback(DetailsKeystoneInfoFrame, "KeystoneUpdate", "OnKeystoneUpdate")
 
-			openRaidLib.WipeKeystoneData()
+			local guildName = GetGuildInfo("player")
+			if (guildName) then
+				--call an update on the guild roster
+				if (C_GuildInfo and C_GuildInfo.GuildRoster) then
+					C_GuildInfo.GuildRoster()
+				end
+				DetailsKeystoneInfoFrame.RequestFromGuildButton:Enable()
+
+				if (DetailsKeystoneInfoFrame.lastGuildRequest and GetTime() - DetailsKeystoneInfoFrame.lastGuildRequest > 60) then
+					DetailsKeystoneInfoFrame.lastGuildRequest = GetTime()
+					DetailsKeystoneInfoFrame.RequestFromGuildButton:Click()
+				end
+			else
+				DetailsKeystoneInfoFrame.RequestFromGuildButton:Disable()
+			end
+
+			--openRaidLib.WipeKeystoneData()
 
 			if (IsInRaid()) then
 				openRaidLib.RequestKeystoneDataFromRaid()
@@ -2383,9 +3643,1789 @@ if (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then
 				openRaidLib.RequestKeystoneDataFromParty()
 			end
 
-			openRaidLib.RequestKeystoneDataFromGuild()
-
 			DetailsKeystoneInfoFrame.RefreshData()
 		end
 	end
 end
+
+--ñote ~note ~notes ~notepad
+---@class notereplacement : table
+---@field addonObject table
+---@field memberName string
+---@field payload any[]
+
+--this table store addons which want to replace the note command
+--more than one addon can be registered and all of them will be called when the user type /note
+--is up to the user to decide which addon to use
+local noteCallbacks = {
+	---@type notereplacement[]
+	["NOTE"] = {},
+	---@type notereplacement[]
+	["NOTES"] = {},
+	---@type notereplacement[]
+	["NOTEPAD"] = {},
+}
+
+---@alias notecommand
+---| "NOTE"
+---| "NOTES"
+---| "NOTEPAD"
+
+---register an addon and a callback function to be called when the user type /keystone
+---@param addonObject table a table containing the function to be called, example: {[memberName] = function()end}
+---@param memberName string a function name that exists inside the addonObject table
+---@param noteCommandToReplace notecommand which note command to replace
+---@param ... any any number of parameters to be passed to the callback function
+---@return boolean bGotRegistered true if the addon was registered, false if it was already registered and got unregistered
+function Details:ReplaceNoteCommand(addonObject, memberName, noteCommandToReplace, ...)
+	--check if the parameters passed are valid types
+	if (type(addonObject) ~= "table") then
+		error("Details:ReplaceNoteCommand: addonObject must be a table")
+
+	elseif (type(memberName) ~= "string") then
+		error("Details:ReplaceNoteCommand: memberName must be a string")
+
+	elseif (type(addonObject[memberName]) ~= "function") then
+		error("Details:ReplaceNoteCommand: t[memberName] doesn't point to a function.")
+
+	elseif (noteCommandToReplace ~= "NOTE" and noteCommandToReplace ~= "NOTES" and noteCommandToReplace ~= "NOTEPAD") then
+		error("Details:ReplaceNoteCommand: noteCommandToReplace must be 'NOTE', 'NOTES' or 'NOTEPAD'")
+	end
+
+	local commandRegisteredCallbacks = noteCallbacks[noteCommandToReplace]
+
+	--check if the addonObject is already registered and remove it
+	for i = #commandRegisteredCallbacks, 1, -1 do
+		if (commandRegisteredCallbacks[i].addonObject == addonObject) then
+			--check if the memberName is the same
+			if (commandRegisteredCallbacks[i].memberName == memberName) then
+				table.remove(commandRegisteredCallbacks, i)
+				return false
+			end
+		end
+	end
+
+	local payload = {...}
+
+	commandRegisteredCallbacks[#commandRegisteredCallbacks+1] = {
+		addonObject = addonObject,
+		memberName = memberName,
+		payload = payload
+	}
+
+	return true
+end
+
+SLASH_NOTE1 = "/note"
+SLASH_NOTES1 = "/notes"
+SLASH_NOTEPAD1 = "/notepad"
+
+local noteEditor = {}
+local canAcceptNoteOn = {
+	[8] = true, --mythic dungeon difficulty
+	[23] = true, --mythic dungeon difficulty
+}
+
+---@alias notename string
+
+---@class unitnote : table
+---@field note string
+---@field commId string
+
+---@class savednote : table
+---@field name string
+---@field note string
+---@field renamed boolean
+
+---@class noteconfigs : table
+---@field enabled boolean
+---@field framepos table
+---@field screenpos table
+---@field notes savednote[]
+---@field banlist table<actorname, boolean>
+---@field printtochat boolean
+---@field fontsize number
+---@field transparency number
+---@field leftclickthrough boolean
+---@field rightclickthrough boolean
+---@field showheader boolean
+---@field showrightclicktoclose boolean
+---@field showclosebutton boolean
+---@field showbansenderbutton boolean
+---@field showoptionsbutton boolean
+---@field showresizebutton boolean
+---@field framecolor number[]
+
+noteEditor.OpenNoteOptionsPanel = function()
+	if (not DetailsNoteOptionsFrame) then
+		local mainFrame = detailsFramework:CreateSimplePanel(UIParent, 600, 400, "Notes (/note) Options", "DetailsNoteOptionsFrame")
+		detailsFramework:ApplyStandardBackdrop(mainFrame)
+		--dont allow the mainframe go off screen
+		mainFrame:SetClampedToScreen(true)
+		mainFrame:SetToplevel(true)
+
+		---@type noteconfigs
+		local config = Details.third_party.openraid_notecache
+
+		local options = {
+			always_boxfirst = true,
+
+			{
+				type = "toggle",
+				get = function()
+					return config.enabled
+				end,
+				set = function(self, fixedparam, value)
+					config.enabled = value
+				end,
+				name = "Enabled",
+				desc = "Enabled",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.printtochat
+				end,
+				set = function(self, fixedparam, value)
+					config.printtochat = value
+				end,
+				name = "No Window, just print to chat",
+				desc = "Print to Chat",
+			},
+
+			{type = "blank"},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.leftclickthrough
+				end,
+				set = function(self, fixedparam, value)
+					config.leftclickthrough = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Don't move with LEFT mouse click",
+				desc = "Window cannot interact with LEFT clicks",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.rightclickthrough
+				end,
+				set = function(self, fixedparam, value)
+					config.rightclickthrough = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Don't close with RIGHT mouse click",
+				desc = "Window cannot interact with RIGHT clicks",
+			},
+
+			{type = "blank"},
+
+			{
+				type = "button",
+				func = function()
+					config.notes = {}
+				end,
+				name = "Clear Notes",
+				desc = "Clear all notes",
+				icontexture = [[Interface\BUTTONS\UI-StopButton]],
+			},
+
+			{
+				type = "button",
+				func = function()
+					config.banlist = {}
+				end,
+				name = "Clear Banlist",
+				desc = "Clear all banlist",
+				icontexture = [[Interface\BUTTONS\UI-StopButton]],
+			},
+
+			{
+				type = "button",
+				func = function()
+					config.framepos.scale = 1
+					wipe(config.framepos.position)
+					config.screenpos.scale = 1
+					wipe(config.screenpos.position)
+
+					config.screenpos.width = 275
+					config.screenpos.height = 350
+
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Reset Positions",
+				desc = "Reset all positions",
+				icontexture = "UI-RefreshButton", --atlasname
+			},
+
+			{type = "blank"},
+
+			{
+				type = "range",
+				get = function() return config.fontsize end,
+				set = function(self, fixedparam, value)
+					config.fontsize = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshNoteTextSettings()
+					end
+				end,
+				min = 8,
+				max = 16,
+				step = 1,
+				name = "Text Size",
+				desc = "Text Size",
+			},
+
+			{type = "blank"},
+
+            {
+                type = "color",
+                get = function()
+                    local r, g, b = unpack(config.framecolor)
+                    return r, g, b
+                end,
+                set = function(widget, r, g, b)
+                    local colorTable = config.framecolor
+                    colorTable[1], colorTable[2], colorTable[3] = r, g, b
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+                end,
+                name = "Background color",
+                desc = "Background color",
+            },
+
+			{
+				type = "range",
+				get = function() return config.transparency end,
+				set = function(self, fixedparam, value)
+					config.transparency = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				min = 0,
+				max = 1,
+				step = 0.1,
+				usedecimals = true,
+				name = "Transparency",
+				desc = "Transparency",
+			},
+
+			{
+				type = "button",
+				func = function()
+					config.transparency = 0.02
+					local colorTable = config.framecolor
+					local red, green, blue = detailsFramework:GetDefaultBackdropColor()
+					colorTable[1], colorTable[2], colorTable[3] = red, green, blue
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+						mainFrame:RefreshOptions()
+					end
+				end,
+				icontexture = "UI-RefreshButton", --atlasname
+				name = "Reset Color",
+				desc = "Reset Color",
+			},
+
+			{type = "breakline"},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.showheader
+				end,
+				set = function(self, fixedparam, value)
+					config.showheader = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Show header where it says 'Notes (/note)'",
+				desc = "Show header where it says 'Notes (/note)'",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.showrightclicktoclose
+				end,
+				set = function(self, fixedparam, value)
+					config.showrightclicktoclose = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Show 'Right click to close'",
+				desc = "Show 'Right click to close'",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.showclosebutton
+				end,
+				set = function(self, fixedparam, value)
+					config.showclosebutton = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Show close button",
+				desc = "Show close button",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.showbansenderbutton
+				end,
+				set = function(self, fixedparam, value)
+					config.showbansenderbutton = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Show ban sender button",
+				desc = "Show ban sender button",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.showoptionsbutton
+				end,
+				set = function(self, fixedparam, value)
+					config.showoptionsbutton = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Show options button (/note to open options then)",
+				desc = "There is a button on the note window to open the options",
+			},
+
+			{
+				type = "toggle",
+				get = function()
+					return config.showresizebutton
+				end,
+				set = function(self, fixedparam, value)
+					config.showresizebutton = value
+					if (DetailsNoteScreenFrame) then
+						DetailsNoteScreenFrame.RefreshFrameSettings()
+					end
+				end,
+				name = "Show resize button",
+				desc = "Show resize button",
+			},
+		}
+
+		--create a details framework label using with the text: options for the window where the note is shown
+		---@type df_label
+		local label = detailsFramework:CreateLabel(mainFrame, "Options for the window where the note is shown", "GameFontNormal")
+		label:SetPoint("topleft", mainFrame, "topleft", 3, -30)
+
+		local options_text_template = detailsFramework:GetTemplate("font", "OPTIONS_FONT_TEMPLATE")
+		options_text_template = detailsFramework.table.copy({}, options_text_template)
+		options_text_template.size = 11
+
+		local options_dropdown_template = detailsFramework:GetTemplate("dropdown", "OPTIONS_DROPDOWN_TEMPLATE")
+		local options_switch_template = detailsFramework:GetTemplate("switch", "OPTIONS_CHECKBOX_TEMPLATE")
+		local options_slider_template = detailsFramework:GetTemplate("slider", "OPTIONS_SLIDER_TEMPLATE")
+		local options_button_template = detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE")
+
+		detailsFramework:BuildMenu(mainFrame, options, 3, -57, 580, false, options_text_template, options_dropdown_template, options_switch_template, true, options_slider_template, options_button_template)
+	end
+
+	local screenFrame = DetailsNoteScreenFrame
+	if (not screenFrame or not screenFrame:IsShown()) then
+		local testText = "This currently text shown here is just a test text because you have opened the options panel for this feature. It is intended to changes made in the options panel to be immediately applied here."
+		local invalidCommId = ""
+		local bIsSimulateOnClient = true
+		noteEditor.OpenNoteScreenPanel(UnitName("player"), testText, invalidCommId, bIsSimulateOnClient)
+		screenFrame = DetailsNoteScreenFrame
+	end
+
+	DetailsNoteOptionsFrame:ClearAllPoints()
+
+	DetailsNoteOptionsFrame:SetPoint("left", screenFrame, "right", 50, 0)
+	DetailsNoteOptionsFrame:Show()
+end
+
+--this is a function which open a frame with a text entry with text telling about the api of the note feature
+local openAPIFrame = function()
+	local CONST_WINDOW_WIDTH = 614
+	local CONST_WINDOW_HEIGHT = 720
+	local editorAlpha = 0.1
+
+	local mainFrame = detailsFramework:CreateSimplePanel(UIParent, CONST_WINDOW_WIDTH, CONST_WINDOW_HEIGHT, "Notes (/note) API", "DetailsNoteAPIFrame")
+	mainFrame:SetPoint("left", UIParent, "left", 50, 0)
+	mainFrame:SetToplevel(true)
+
+	--create a lua text entry to show the api text
+	local editboxNotes = detailsFramework:NewSpecialLuaEditorEntry(mainFrame, CONST_WINDOW_WIDTH - 10, CONST_WINDOW_HEIGHT - 30, "editboxNotes", "$parentAPIEditbox", true)
+	editboxNotes:SetPoint("topleft", mainFrame, "topleft", 2, -25)
+	editboxNotes:SetBackdrop(nil)
+	detailsFramework:ReskinSlider(editboxNotes.scroll)
+	mainFrame.EditboxNotes = editboxNotes
+
+	editboxNotes.scroll:ClearAllPoints()
+	editboxNotes.scroll:SetPoint("topleft", editboxNotes, "topleft", 1, -1)
+	editboxNotes.scroll:SetPoint("bottomright", editboxNotes, "bottomright", -1, 0)
+
+	local font, h, flags = editboxNotes.editbox:GetFont()
+	editboxNotes.editbox:SetFont(font, 12, flags)
+	editboxNotes.editbox:SetAllPoints()
+	editboxNotes.editbox:SetBackdrop(nil)
+	editboxNotes.editbox:SetTextInsets(4, 4, 4, 4)
+
+	local CONST_EDITBOX_COLOR = {.6, .6, .6, .5}
+	local rr, gg, bb = unpack(CONST_EDITBOX_COLOR)
+	local backgroundTexture1 = editboxNotes.scroll:CreateTexture(nil, "background", nil, -6)
+	backgroundTexture1:SetAllPoints()
+	backgroundTexture1:SetColorTexture(rr, gg, bb, editorAlpha)
+
+	local backgroundTexture2 = editboxNotes.editbox:CreateTexture(nil, "background", nil, -6)
+	backgroundTexture2:SetAllPoints()
+	backgroundTexture2:SetColorTexture(rr, gg, bb, editorAlpha)
+
+	local backgroundTexture3 = editboxNotes:CreateTexture(nil, "background", nil, -6)
+	backgroundTexture3:SetAllPoints()
+	backgroundTexture3:SetColorTexture(0, 0, 0, 1)
+
+	editboxNotes.backgroundTexture1 = backgroundTexture1
+	editboxNotes.backgroundTexture2 = backgroundTexture2
+	editboxNotes.backgroundTexture3 = backgroundTexture3
+
+	editboxNotes:SetText([[
+Open Raid API:
+
+- Notes sent using OpenRaid are logged on the server so players can be reported. Check the report code on details/functions/slash.lua
+- OpenRaid will error if the note has less than 50 characters or more than 1500 characters.
+
+---@alias playername string
+
+---@class unitnote : table
+---@field note string
+---@field commId string
+
+--register a callback to receive notes sent by other players:
+local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+if (openRaidLib) then
+    local anObject = {
+        ---@param unitId string who sent the note
+        ---@param unitNote unitnote the note object
+        ---@param allUnitsNote table<playername, unitnote> a table containing all notes sent by all players
+        OnNoteUpdate = function(unitId, unitNote, allUnitsNote)
+            --unitNote.note is the note
+            --unitNote.commId is the communication id used at the report player dialog
+
+            if (unitNote.commId:len() < 8) then
+                --there was a problem registering the note on the server, and the note should be discarded.
+                return
+            end
+        end
+    }
+    openRaidLib.RegisterCallback(anObject, "NoteUpdated", "OnNoteUpdate")
+end
+
+--send a note to other player in the group:
+local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+if (openRaidLib) then
+    local noteText = "Hello, I'm sending a note to the group!, how are you?"
+    --tell OpenRaid that the note of this player is noteText
+    openRaidLib.SetPlayerNote(noteText)
+    --tell OpenRaid to send the note set by the player to all other players in the group
+    openRaidLib.SendPlayerNote()
+end
+
+
+Details API:
+
+- Each once of the slashes /note /notes /notepad can be replaced by an addon to handle the note feature, use:
+
+---@alias notecommand
+---| "NOTE"
+---| "NOTES"
+---| "NOTEPAD"
+
+---@param addonObject table a table containing the function to be called, example: {[memberName] = function()end}
+---@param memberName string a function name that exists inside the addonObject table
+---@param noteCommandToReplace notecommand which note command to replace
+---@param ... any any number of parameters to be passed to the callback function
+---@return boolean bGotRegistered true if the addon was registered, false if it was already registered and got unregistered
+Details:ReplaceNoteCommand(addonObject, memberName, noteCommandToReplace, ...)
+
+]])
+end
+
+
+---@param unitIds unit[]
+---@return unit[], unit[], unit[]
+function noteEditor.PrepareUnitRoleTables(unitIds)
+	local dpsList = {}
+	local healerList = {}
+	local tankList = {}
+
+	for unitIndex, unitId in ipairs(unitIds) do
+		if (UnitExists(unitId)) then
+			local unitRole = detailsFramework.UnitGroupRolesAssigned(unitId)
+			if (unitRole == "TANK") then
+				table.insert(tankList, unitId)
+			elseif (unitRole == "HEALER") then
+				table.insert(healerList, unitId)
+			else
+				table.insert(dpsList, unitId)
+			end
+		else
+			break
+		end
+	end
+
+	return tankList, healerList, dpsList
+end
+
+local replaceText = function(unitIdList, index, token, text, bNoColoring)
+	local bCanAddClassColor = not bNoColoring
+	local unitId = unitIdList[index]
+	local unitName = UnitName(unitId)
+	local unitClass = select(2, UnitClass(unitId))
+
+	local tokenId = token .. index
+
+	if (text:find(tokenId)) then
+		text = text:gsub(tokenId, bCanAddClassColor and detailsFramework:AddClassColorToText(unitName, unitClass) or unitName)
+	else
+		--remove the tokenId from the text
+		text = text:gsub(tokenId .. ",", "")
+		text = text:gsub(tokenId .. ";", "")
+		text = text:gsub(tokenId, "")
+	end
+	return text
+end
+
+function noteEditor.FindAndColorUnitNames(text)
+	local unitIds
+	if (IsInRaid()) then
+		unitIds = Details222.UnitIdCache.Raid
+	else
+		unitIds = Details222.UnitIdCache.Party
+	end
+
+	for i = 1, #unitIds do
+		local unitId = unitIds[i]
+		if (UnitExists(unitId)) then
+			local unitName = UnitName(unitId)
+			local unitClass = select(2, UnitClass(unitId))
+			--text = text:gsub(unitName .. "(?!%|r)", detailsFramework:AddClassColorToText(unitName, unitClass))
+
+			if (unitClass) then
+				local currentPosition = 1
+				local attempts = 10
+				while (attempts > 0) do
+					local startPos, endPos = string.find(text, unitName, currentPosition)
+
+					if (not startPos) then
+						break
+					end
+
+					if (string.sub(text, endPos+1, endPos+2) ~= "|r") then
+						text = string.sub(text, 1, startPos - 1) .. detailsFramework:AddClassColorToText(unitName, unitClass) .. string.sub(text, endPos + 1)
+						currentPosition = startPos + 12 + #unitName -- 12 accounts for "|c00000000" and "|r"
+					else
+						currentPosition = endPos + 1
+					end
+
+					attempts = attempts - 1
+					if (attempts == 0) then
+						break
+					end
+				end
+			end
+		end
+	end
+
+	return text
+end
+
+--this function get the text of the note and replace any special tags
+function noteEditor.ParseNoteText(text, bNoColoring)
+	local unitIds
+	if (IsInRaid()) then
+		unitIds = Details222.UnitIdCache.Raid
+	else
+		unitIds = Details222.UnitIdCache.Party
+	end
+
+	local tankList, healerList, dpsList = noteEditor.PrepareUnitRoleTables(unitIds)
+
+	for i = 1, #tankList do
+		text = replaceText(tankList, i, "tank", text, bNoColoring)
+	end
+	for i = 1, #healerList do
+		text = replaceText(healerList, i, "healer", text, bNoColoring)
+	end
+	for i = 1, #dpsList do
+		text = replaceText(dpsList, i, "dps", text, bNoColoring)
+	end
+
+	return text
+end
+
+noteEditor.OpenNoteEditor = function()
+	--check if the client is running retail version
+	if (not detailsFramework.IsDragonflightAndBeyond()) then
+		Details:Msg("This feature is only available on retail version.")
+		return
+	end
+
+	local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+	if (openRaidLib) then
+		if (not DetailsNoteFrame) then
+			local CONST_WINDOW_WIDTH = 614
+			local CONST_WINDOW_HEIGHT = 720
+			local CONST_LINE_HEIGHT = 20
+			local CONST_LINE_AMOUNT = 20
+			local CONST_NOTESELECTOR_WIDTH = 224
+			local CONST_NOTEEDITOR_HEIGHT = CONST_WINDOW_HEIGHT - 155
+			local CONST_NOTEEDITOR_WIDTH = CONST_WINDOW_WIDTH - 230
+			local CONST_NOTE_MIN_CHARACTERS = 20
+			local CONST_NOTE_MAX_CHARACTERS = 1500
+
+			local editorAlpha = 0.1
+
+			local mainFrame = detailsFramework:CreateSimplePanel(UIParent, CONST_WINDOW_WIDTH, CONST_WINDOW_HEIGHT, "Notes (/note)", "DetailsNoteFrame")
+			mainFrame:SetPoint("center", UIParent, "center", -200, 0)
+			mainFrame:SetScript("OnMouseDown", nil) --disable framework native moving scripts
+			mainFrame:SetScript("OnMouseUp", nil) --disable framework native moving scripts
+			mainFrame:SetToplevel(true)
+
+			local config = Details.third_party.openraid_notecache
+			---@type table<notename, savednote>
+			local savedNotes = config["notes"]
+
+			function mainFrame.HasAnyNoteSaved()
+				return #savedNotes > 0
+			end
+
+			---@return string
+			function mainFrame.GenerateNewNoteName()
+				local name, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceID = GetInstanceInfo()
+				local pattern = "(%w)%w*"
+				local shortInstanceName = name:gsub(pattern, "%1")
+				shortInstanceName = shortInstanceName:gsub("%s", "")
+				local noteName = shortInstanceName .. " " .. date("%m-%d %H:%M")
+				return noteName
+			end
+
+			--get the current text from the note editor and save it
+			---@param noteIndex number?
+			function mainFrame.SaveNote(noteIndex)
+				local noteText = mainFrame.EditboxNotes.editbox:GetText()
+
+				if (noteText and noteText ~= "") then
+					if (#savedNotes == 0) then
+						savedNotes[#savedNotes+1] = {name = "default", note = noteText}
+					else
+						local noteName = mainFrame.GenerateNewNoteName()
+						if (noteIndex and type(noteIndex) == "number") then
+							if (not savedNotes[noteIndex].renamed) then
+								savedNotes[noteIndex].name = noteName
+							end
+							savedNotes[noteIndex].note = noteText
+						else
+							--no note is selected, create a new note
+							savedNotes[#savedNotes+1] = {name = noteName, note = noteText, renamed = false}
+						end
+					end
+
+					mainFrame.NoteSelectionScrollFrame:Refresh()
+				end
+			end
+
+			function mainFrame.SetNoteName(noteIndex, newName)
+				savedNotes[noteIndex].name = newName
+				savedNotes[noteIndex].renamed = true
+				mainFrame.NoteSelectionScrollFrame:Refresh()
+			end
+
+			function mainFrame.SelectNote(noteIndex)
+				if (mainFrame.currentNoteIndex) then
+					mainFrame.SaveNote(mainFrame.currentNoteIndex)
+				end
+
+				local noteData = savedNotes[noteIndex]
+				mainFrame.currentNoteIndex = noteIndex
+				mainFrame.EditboxNotes.editbox:SetText(noteData.note)
+				mainFrame.NoteSelectionScrollFrame:Refresh()
+			end
+
+			function mainFrame.CreateEmptyNote()
+				savedNotes[#savedNotes+1] = {name = mainFrame.GenerateNewNoteName(), note = "", renamed = false}
+				mainFrame.SelectNote(#savedNotes)
+				mainFrame.NoteSelectionScrollFrame:Refresh()
+			end
+
+			--erase note by name and then refresh the note selection scroll
+			---@param noteIndex number
+			function mainFrame.EraseNote(noteIndex)
+				table.remove(savedNotes, noteIndex)
+
+				if (noteIndex == mainFrame.currentNoteIndex) then
+					mainFrame.currentNoteIndex = nil
+					mainFrame.EditboxNotes.editbox:SetText("")
+
+				elseif (mainFrame.currentNoteIndex and noteIndex < mainFrame.currentNoteIndex) then
+					mainFrame.currentNoteIndex = mainFrame.currentNoteIndex - 1
+
+				elseif (not mainFrame.currentNoteIndex) then
+					mainFrame.EditboxNotes.editbox:SetText("")
+				end
+
+				mainFrame.NoteSelectionScrollFrame:Refresh()
+			end
+
+			do --create scale and statusbar, register to libwindow
+				local LibWindow = LibStub("LibWindow-1.1")
+				LibWindow.RegisterConfig(mainFrame, config.framepos.position)
+				LibWindow.MakeDraggable(mainFrame)
+				LibWindow.RestorePosition(mainFrame)
+
+				local scaleBar = detailsFramework:CreateScaleBar(mainFrame, config.framepos)
+				mainFrame:SetScale(config.framepos.scale)
+
+				local statusBar = detailsFramework:CreateStatusBar(mainFrame)
+				statusBar.text = statusBar:CreateFontString(nil, "overlay", "GameFontNormal")
+				statusBar.text:SetPoint("left", statusBar, "left", 5, 0)
+				statusBar.text:SetText("By Terciob | From Details! Damage Meter")
+				detailsFramework:SetFontSize(statusBar.text, 12)
+				detailsFramework:SetFontColor(statusBar.text, "silver")
+			end
+
+			do --create the note textarea
+				local editboxNotes = detailsFramework:NewSpecialLuaEditorEntry(mainFrame, CONST_NOTEEDITOR_WIDTH, CONST_NOTEEDITOR_HEIGHT, "editboxNotes", "DetailsNoteFrameNoteEditbox", true)
+				editboxNotes:SetPoint("topleft", mainFrame, "topleft", 2, -25)
+				editboxNotes:SetBackdrop(nil)
+				detailsFramework:ReskinSlider(editboxNotes.scroll)
+				mainFrame.EditboxNotes = editboxNotes
+
+				editboxNotes.scroll:ClearAllPoints()
+				editboxNotes.scroll:SetPoint("topleft", editboxNotes, "topleft", 1, -1)
+				editboxNotes.scroll:SetPoint("bottomright", editboxNotes, "bottomright", -1, 0)
+
+				local font, h, flags = editboxNotes.editbox:GetFont()
+				editboxNotes.editbox:SetFont(font, 12, flags)
+				editboxNotes.editbox:SetAllPoints()
+				editboxNotes.editbox:SetBackdrop(nil)
+				editboxNotes.editbox:SetTextInsets(4, 4, 4, 4)
+
+				local CONST_EDITBOX_COLOR = {.6, .6, .6, .5}
+				local rr, gg, bb = unpack(CONST_EDITBOX_COLOR)
+				local backgroundTexture1 = editboxNotes.scroll:CreateTexture(nil, "background", nil, -6)
+				backgroundTexture1:SetAllPoints()
+				backgroundTexture1:SetColorTexture(rr, gg, bb, editorAlpha)
+
+				local backgroundTexture2 = editboxNotes.editbox:CreateTexture(nil, "background", nil, -6)
+				backgroundTexture2:SetAllPoints()
+				backgroundTexture2:SetColorTexture(rr, gg, bb, editorAlpha)
+
+				local backgroundTexture3 = editboxNotes:CreateTexture(nil, "background", nil, -6)
+				backgroundTexture3:SetAllPoints()
+				backgroundTexture3:SetColorTexture(0, 0, 0, 1)
+
+				editboxNotes.backgroundTexture1 = backgroundTexture1
+				editboxNotes.backgroundTexture2 = backgroundTexture2
+				editboxNotes.backgroundTexture3 = backgroundTexture3
+
+				DetailsNoteFrameNoteEditboxScrollBar:SetPoint("topleft", editboxNotes, "topright", -20, -19)
+				DetailsNoteFrameNoteEditboxScrollBar:SetPoint("bottomleft", editboxNotes, "bottomright", -20, 19)
+
+				local currentChars = editboxNotes:CreateFontString(nil, "overlay", "GameFontNormal")
+				currentChars:SetPoint("topright", editboxNotes, "topright", -25, -5)
+				currentChars:SetText("0")
+				detailsFramework:SetFontColor(currentChars, "gray")
+
+				--when the user types into the editbox, update the current amount of characters
+				editboxNotes.editbox:HookScript("OnTextChanged", function(self)
+					local text = self:GetText()
+					local len = text:len()
+					currentChars:SetText(len)
+
+					if (len < CONST_NOTE_MIN_CHARACTERS) then
+						detailsFramework:SetFontColor(currentChars, "red")
+					else
+						detailsFramework:SetFontColor(currentChars, "gray")
+					end
+				end)
+
+				--create a string with the text "Type your note here" and it attach center to center of the editbox
+				local typeYourNote = editboxNotes:CreateFontString(nil, "overlay", "GameFontNormal")
+				typeYourNote:SetPoint("center", editboxNotes, "center", 0, 0)
+				typeYourNote:SetText("CLICK TO START YOUR NOTE")
+				detailsFramework:SetFontColor(typeYourNote, "gray")
+				detailsFramework:SetFontSize(typeYourNote, 14)
+
+				--when the editbox is focused, hide the "type your note here" text
+				editboxNotes.editbox:HookScript("OnEditFocusGained", function(self)
+					typeYourNote:Hide()
+				end)
+
+				--when the editbox is unfocused and the text is empty, show the "type your note here" text
+				editboxNotes.editbox:HookScript("OnEditFocusLost", function(self)
+					if (self:GetText() == "") then
+						typeYourNote:Show()
+					end
+				end)
+
+				--when the editbox receives any character modification, hide the "type your note here" text
+				editboxNotes.editbox:HookScript("OnTextChanged", function(self)
+					if (self:GetText() == "" and not editboxNotes.editbox:HasFocus()) then
+						typeYourNote:Show()
+					else
+						typeYourNote:Hide()
+					end
+				end)
+			end
+
+			do --floating frame above the bottom of the text editor
+				local bottomFrameFloating = CreateFrame("frame", "$parentFloatingFrame", mainFrame.EditboxNotes, "BackdropTemplate")
+				bottomFrameFloating:SetPoint("bottomleft", mainFrame.EditboxNotes, "bottomleft", 0, 0)
+				bottomFrameFloating:SetPoint("bottomright", mainFrame.EditboxNotes, "bottomright", 0, 0)
+				bottomFrameFloating:SetHeight(130)
+				detailsFramework:ApplyStandardBackdrop(bottomFrameFloating)
+				bottomFrameFloating:SetFrameLevel(mainFrame.EditboxNotes:GetFrameLevel() + 5)
+
+				--create a gradient texture from black to transparent from the top side of the framefloating
+				local topGradient = DetailsFramework:CreateTexture(bottomFrameFloating, {gradient = "vertical", fromColor = "transparent", toColor = {0, 0, 0, 0.25}}, 1, 60, "artwork", {0, 1, 0, 1}, "GradientTexture")
+				topGradient:SetPoint("tops")
+
+				--create a minimize button at the topleft of the framefloating
+				local minimizeButton = detailsFramework:CreateButton(bottomFrameFloating, function()
+					bottomFrameFloating:Hide()
+					bottomFrameFloating.MaximizeButton:Show()
+					bottomFrameFloating.MinimizeButton:Hide()
+				end, 16, 16, "minimize")
+				minimizeButton:SetPoint("topleft", bottomFrameFloating, "topleft", -1, -2)
+				minimizeButton:SetIcon("Interface\\BUTTONS\\UI-Panel-HideButton-Up", 16, 16, "overlay", {0.2, 0.8, 0.2, 0.8})
+				bottomFrameFloating.MinimizeButton = minimizeButton
+
+				--create a miximize button at the bottomleft of the editbox, this button is shown when the bottomFrameFloating is hidden (minimized)
+				local maximizeButton = detailsFramework:CreateButton(mainFrame.EditboxNotes, function()
+					bottomFrameFloating:Show()
+					bottomFrameFloating.MaximizeButton:Hide()
+					bottomFrameFloating.MinimizeButton:Show()
+				end, 16, 16, "miximize")
+				maximizeButton:SetPoint("bottomleft", mainFrame.EditboxNotes, "bottomleft", 0, 0)
+				maximizeButton:SetIcon("Interface\\BUTTONS\\UI-Panel-CollapseButton-Up", 16, 16, "overlay", {0.2, 0.8, 0.2, 0.8})
+				maximizeButton:SetFrameLevel(mainFrame.EditboxNotes:GetFrameLevel() + 5)
+				maximizeButton:Hide()
+				bottomFrameFloating.MaximizeButton = maximizeButton
+
+				local createNewPlayerSelectionButton = function()
+					local newButton = detailsFramework:CreateButton(bottomFrameFloating, function()end, 100, 22, "")
+					detailsFramework:CreateHighlightTexture(newButton)
+					return newButton
+				end
+
+				local playerSelectionPool = detailsFramework:CreatePool(createNewPlayerSelectionButton)
+				playerSelectionPool.onReset = function(button)
+					button:Hide()
+					button:ClearAllPoints()
+				end
+				playerSelectionPool.onAcquire = function(button)
+					button:Show()
+				end
+
+				function mainFrame.RefreshPickPlayer()
+					local unitIds
+					if (IsInRaid()) then
+						unitIds = Details222.UnitIdCache.Raid
+					else
+						unitIds = Details222.UnitIdCache.Party
+					end
+
+					playerSelectionPool:ReleaseAll()
+
+					local column = 1
+					local row = 1
+					local maxColumns = 5
+					local maxRows = 5
+					local columnWidth = 80
+					local rowHeight = 22
+
+					local tankIndex = 1
+					local healerIndex = 1
+					local dpsIndex = 1
+
+					for unitIndex, unitId in ipairs(unitIds) do
+						if (UnitExists(unitId)) then
+							---@type df_button
+							local selectPlayerButton = playerSelectionPool:Acquire()
+
+							--calculate where this button should be placed, the coulumn increments when the row reaches the maxRows, then it jumps the columnWidth and start from row 1 again
+							selectPlayerButton:SetPoint("topleft", bottomFrameFloating, "topleft", 3 + ((column-1) * columnWidth), -((row-1) * rowHeight) - 20)
+
+							--increment the row
+							row = row + 1
+							if (row > maxRows) then
+								row = 1
+								column = column + 1
+							end
+
+							--if the column is bigger than the maxColumns, then stop creating buttons
+							if (column > maxColumns) then
+								break
+							end
+
+							local role = detailsFramework.UnitGroupRolesAssigned(unitId)
+							local roleTexture, left, right, top, bottom = detailsFramework:GetRoleIconAndCoords(role)
+							local unitName = UnitName(unitId)
+							local unitClass = select(2, UnitClass(unitId))
+
+							selectPlayerButton:SetTextTruncated(unitName, columnWidth - 30)
+							selectPlayerButton:SetTextColor(unitClass)
+							selectPlayerButton:SetSize(columnWidth - 2, rowHeight - 2)
+							selectPlayerButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+							selectPlayerButton:SetIcon(roleTexture, 14, 14, "overlay", {left, right, top, bottom})
+							selectPlayerButton:SetAlpha(0.834)
+
+							selectPlayerButton:SetScript("OnClick", function()
+								local textToInsert = ""
+								if (role == "TANK") then
+									textToInsert = "tank" .. tankIndex
+									tankIndex = tankIndex + 1
+
+								elseif (role == "HEALER") then
+									textToInsert = "healer" .. healerIndex
+									healerIndex = healerIndex + 1
+								else
+									textToInsert = "dps" .. dpsIndex
+									dpsIndex = dpsIndex + 1
+								end
+
+								textToInsert = textToInsert .. " "
+								mainFrame.editboxNotes.editbox:Insert(textToInsert)
+							end)
+						else
+							break
+						end
+					end
+				end
+
+				bottomFrameFloating:RegisterEvent("GROUP_ROSTER_UPDATE")
+				bottomFrameFloating:SetScript("OnEvent", function(self, event)
+					if (bottomFrameFloating:IsShown()) then
+						mainFrame.RefreshPickPlayer()
+					end
+				end)
+
+				bottomFrameFloating:HookScript("OnShow", function(self)
+					mainFrame.RefreshPickPlayer()
+				end)
+
+				mainFrame.RefreshPickPlayer()
+			end
+
+			do --create the note selection scroll
+				local lastClick = 0
+				local lastLineClicked = nil
+
+				local doSelectNote = function(line)
+					lastLineClicked = line
+					local noteData = line.noteData
+					if (noteData) then
+						mainFrame.SelectNote(line.index)
+					end
+				end
+
+				local selectNoteOnClick = function(line)
+					local now = GetTime()
+					if (now - lastClick < 0.3) then
+						lastClick = 0
+						if (lastLineClicked == line) then
+							--start renaming the note
+							line.RenameTextEntry:Show()
+							line.RenameTextEntry:SetText(line.NoteName:GetText() or "")
+							line.RenameTextEntry:SetFocus(true)
+							line.RenameTextEntry:HighlightText(0)
+							line.NoteName:Hide()
+						else
+							doSelectNote(line)
+						end
+					else
+						lastClick = now
+						doSelectNote(line)
+					end
+				end
+
+				local onPressEnterToRenameNote = function(textentry, object, text)
+					local line = textentry:GetParent()
+					local noteData = line.noteData
+
+					if (noteData) then
+						mainFrame.SetNoteName(line.index, textentry:GetText() or "")
+					end
+
+					textentry:Hide()
+					textentry:SetFocus(false)
+					line.NoteName:Show()
+					mainFrame.NoteSelectionScrollFrame:Refresh()
+				end
+
+				local onEscapePressedRenameNote = function(self)
+					local line = self:GetParent()
+					self:Hide()
+					line.NoteName:Show()
+				end
+
+				local onEnterLine = function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+					GameTooltip:SetText("double click to rename")
+					GameTooltip:Show()
+				end
+
+				local onLeaveLine = function(self)
+					GameTooltip:Hide()
+				end
+
+				local createdNoteSelectionLine = function(self, index)
+					local line = CreateFrame("button", "$parentLine" .. index, self, "BackdropTemplate")
+					line:SetPoint("topleft", self, "topleft", 1, -((index-1) * (CONST_LINE_HEIGHT+1)) - 1)
+					line:SetSize(mainFrame.NoteSelectionScrollFrame:GetWidth()-22, CONST_LINE_HEIGHT)
+					detailsFramework:ApplyStandardBackdrop(line, index % 2 == 0)
+
+					line:SetScript("OnClick", selectNoteOnClick)
+					line:SetScript("OnEnter", onEnterLine)
+					line:SetScript("OnLeave", onLeaveLine)
+
+					local selectedHighlightTexture = line:CreateTexture("$parentSelectedHighlight", "overlay")
+					selectedHighlightTexture:SetAllPoints()
+					selectedHighlightTexture:SetColorTexture(1, 1, 1, 0.2)
+
+					detailsFramework:CreateHighlightTexture(line)
+
+					local iconTexture = line:CreateTexture("$parentNoteIcon", "overlay")
+					iconTexture:SetSize(CONST_LINE_HEIGHT-2, CONST_LINE_HEIGHT-2)
+					iconTexture:SetPoint("left", line, "left", 2, 0)
+
+					local noteName = line:CreateFontString("$parentNoteName", "overlay", "GameFontNormal")
+					noteName:SetPoint("left", iconTexture, "right", 2, 0)
+
+					local deleteButton = detailsFramework:CreateButton(line, function()
+						---@type savednote
+						local noteData = line.noteData
+						if (noteData) then
+							mainFrame.EraseNote(line.index)
+						end
+					end, 20, 20, "")
+					deleteButton:SetPoint("right", line, "right", -5, 0)
+					deleteButton:SetIcon("Interface\\BUTTONS\\UI-Panel-MinimizeButton-Disabled", 16, 16, "overlay", {0.2, 0.8, 0.2, 0.8})
+					deleteButton:SetSize(20, 20)
+
+					--create a textentry to rename the note
+					local renameTextEntry = detailsFramework:CreateTextEntry(line, function()end, 20, 20, _, _, _, detailsFramework:GetTemplate("dropdown", "OPTIONS_DROPDOWN_TEMPLATE"))
+					renameTextEntry:SetPoint("topleft", line, "topleft", 20, 0) --after the note icon
+					renameTextEntry:SetPoint("bottomright", line, "bottomright", -20, 0) --before the delete button
+					renameTextEntry:Hide()
+					--on lose focus
+					renameTextEntry:SetScript("OnEnterPressed", onPressEnterToRenameNote)
+					renameTextEntry:SetScript("OnEscapePressed", onEscapePressedRenameNote)
+					renameTextEntry:SetScript("OnEditFocusLost", onEscapePressedRenameNote)
+
+					line.SelectedHighlightTexture = selectedHighlightTexture
+					line.IconTexture = iconTexture
+					line.NoteName = noteName
+					line.DeleteButton = deleteButton
+					line.RenameTextEntry = renameTextEntry
+
+					return line
+				end
+
+				local refreshNotes = function(self, data, offset, totalLines)
+					for i = 1, totalLines do
+						local index = i + offset
+						---@type savednote
+						local noteData = data[index]
+						if (noteData) then
+							local line = self:GetLine(i)
+							if (line) then
+								line.IconTexture:SetTexture([[Interface\BUTTONS\UI-GuildButton-PublicNote-Up]])
+								line.NoteName:SetText(noteData.name)
+								line.noteData = noteData
+								line.index = index
+
+								line.SelectedHighlightTexture:Hide()
+								if (index == mainFrame.currentNoteIndex) then
+									line.SelectedHighlightTexture:Show()
+								end
+
+								--cancel any rename in progress
+								line.RenameTextEntry:SetFocus(false)
+								line.RenameTextEntry:Hide()
+								line.NoteName:Show()
+							end
+						end
+					end
+				end
+
+				--scrollframe to select the note
+				local scrollHeight = CONST_LINE_AMOUNT + (CONST_LINE_AMOUNT * CONST_LINE_HEIGHT) --as each line has 1 pixel of spacing, the first CONST_LINE_AMOUNT is to compensate the spacing
+				local noteSelectionScrollFrame = detailsFramework:CreateScrollBox(mainFrame, "$parentNoteSelectionScrollBox", refreshNotes, savedNotes, CONST_NOTESELECTOR_WIDTH, scrollHeight, CONST_LINE_HEIGHT, CONST_LINE_AMOUNT)
+				noteSelectionScrollFrame:SetPoint("topleft", mainFrame.EditboxNotes, "topright", 2, 0)
+				detailsFramework:ReskinSlider(noteSelectionScrollFrame)
+				DetailsNoteFrameNoteSelectionScrollBoxScrollBar:SetPoint("topleft", noteSelectionScrollFrame, "topright", -20, -19)
+				DetailsNoteFrameNoteSelectionScrollBoxScrollBar:SetPoint("bottomleft", noteSelectionScrollFrame, "bottomright", -20, 19)
+
+				mainFrame.NoteSelectionScrollFrame = noteSelectionScrollFrame
+
+				for i = 1, CONST_LINE_AMOUNT do
+					noteSelectionScrollFrame:CreateLine(createdNoteSelectionLine)
+				end
+
+				noteSelectionScrollFrame:Refresh()
+			end
+
+			do --create the bottom panel
+				local bottomFrame = CreateFrame("frame", "$parentBottomFrame", mainFrame, "BackdropTemplate")
+				bottomFrame:SetPoint("topleft", mainFrame.EditboxNotes, "bottomleft", 0, -2)
+				bottomFrame:SetPoint("topright", mainFrame.NoteSelectionScrollFrame, "bottomright", 0, -2)
+				bottomFrame:SetPoint("bottomleft", mainFrame, "bottomleft", 0, 22)
+				detailsFramework:ApplyStandardBackdrop(bottomFrame)
+				mainFrame.BottomFrame = bottomFrame
+
+				local buttonWidth = 136
+				local buttonHeight = 22
+
+				local sendButton = detailsFramework:CreateButton(bottomFrame, function()
+					local noteText = mainFrame.EditboxNotes.editbox:GetText()
+					if (noteText:len() < CONST_NOTE_MIN_CHARACTERS) then
+						local msg = "Note is too short, must have at least " .. CONST_NOTE_MIN_CHARACTERS .. " characters."
+						Details:Msg(msg)
+						mainFrame.ShowErrorMsg(msg)
+						return
+					end
+
+					--if there's no note saved, save this note as the default note
+					if (#savedNotes == 0) then
+						mainFrame.SaveNote()
+						mainFrame.currentNoteIndex = 1
+					else
+						mainFrame.SaveNote(mainFrame.currentNoteIndex)
+					end
+
+					if (not IsInRaid()) then
+						--need to replace the special keywords now, as the unitIds isn't the same on different clients, also passes the bNoColoring flag to avoid coloring the names
+						local bNoColoring = true
+						noteText = noteEditor.ParseNoteText(noteText, bNoColoring)
+					end
+
+					--set the player note in the open raid
+					openRaidLib.SetPlayerNote(noteText)
+
+					--open raid do not send the note to the local player, need to trigger the screen panel manually
+					local zoneName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceMapID, instanceGroupSize = GetInstanceInfo()
+					if (not canAcceptNoteOn[difficultyID] and not Details.debug) then --at the moment, players can only receive notes if inside a mythic dungeon
+						local msg = "At the moment, you can only send and receive notes inside a mythic dungeon."
+						Details:Msg(msg)
+						mainFrame.ShowErrorMsg(msg)
+						return
+					end
+
+					openRaidLib.SendPlayerNote()
+
+					local bIsSimulateOnClient = true
+					noteEditor.OpenNoteScreenPanel(UnitName("player"), noteText, "", bIsSimulateOnClient)
+
+				end, buttonWidth, buttonHeight, "Send Note")
+				sendButton:SetPoint("topleft", bottomFrame, "topleft", 0, -2)
+				sendButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+				sendButton:SetIcon("Interface\\BUTTONS\\JumpUpArrow", 18, 18, "overlay", {0, 1, 0, 1})
+				detailsFramework:CreateHighlightTexture(sendButton)
+
+				local saveNoteButton = detailsFramework:CreateButton(bottomFrame, function()
+					--print("mainFrame.currentNoteIndex", mainFrame.currentNoteIndex) --nil when no note is selected
+					mainFrame.SaveNote(mainFrame.currentNoteIndex)
+				end, buttonWidth, buttonHeight, "Save Note")
+				saveNoteButton:SetPoint("bottomleft", sendButton, "bottomright", 4, 0)
+				saveNoteButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+				saveNoteButton:SetIcon([[Interface\BUTTONS\UI-GuildButton-PublicNote-Up]], 16, 16, "overlay")
+				saveNoteButton:SetAlpha(1)
+				detailsFramework:CreateHighlightTexture(saveNoteButton)
+
+				local newNoteButton = detailsFramework:CreateButton(bottomFrame, function()
+					mainFrame.CreateEmptyNote()
+				end, buttonWidth, buttonHeight, "New Empty Note")
+				newNoteButton:SetPoint("bottomleft", saveNoteButton, "bottomright", 4, 0)
+				newNoteButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+				newNoteButton:SetIcon([[Interface\BUTTONS\UI-GuildButton-PublicNote-Up]], 16, 16, "overlay")
+				newNoteButton:SetAlpha(1)
+				detailsFramework:CreateHighlightTexture(newNoteButton)
+
+				local optionsButton = detailsFramework:CreateButton(bottomFrame, function()
+					noteEditor.OpenNoteOptionsPanel()
+				end, buttonWidth, buttonHeight, "OPTIONS")
+				optionsButton:SetPoint("bottomleft", newNoteButton, "bottomright", 4, 0)
+				optionsButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+				optionsButton:SetIcon([[Interface\Scenarios\ScenarioIcon-Interact]], 16, 16, "overlay")
+				optionsButton:SetAlpha(1)
+				detailsFramework:CreateHighlightTexture(optionsButton)
+
+				local apiButton = detailsFramework:CreateButton(bottomFrame, function()
+					openAPIFrame()
+				end, 50, buttonHeight, "API")
+				apiButton:SetPoint("bottomleft", optionsButton, "bottomright", 4, 0)
+				apiButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+				apiButton:SetAlpha(1)
+				detailsFramework:CreateHighlightTexture(apiButton)
+
+				--error msg fontstring, this text is used to show errors to the user, its color is red, size 13 and it is placed centered and below the buttons above
+				--it also has an animation to fade out after 5 seconds, and a shake animation when it's shown
+				local errorMsg = bottomFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				errorMsg:SetPoint("top", bottomFrame, "top", 0, (buttonHeight + 14) * -1)
+				errorMsg:SetWidth(bottomFrame:GetWidth() - 10)
+				errorMsg:SetJustifyH("center")
+				errorMsg:SetAlpha(0)
+				detailsFramework:SetFontColor(errorMsg, "orangered")
+				detailsFramework:SetFontSize(errorMsg, 13)
+				mainFrame.ErrorMsg = errorMsg
+
+				--fade out animation using details framework animation hub
+				local fadeOutAnimationHub = detailsFramework:CreateAnimationHub(errorMsg, function()end, function() errorMsg:SetAlpha(0) end)
+				detailsFramework:CreateAnimation(fadeOutAnimationHub, "Alpha", 1, 2, 1, 0)
+
+				--fade in animation using details framework animation hub
+				local fadeInAnimationHub = detailsFramework:CreateAnimationHub(errorMsg, function() errorMsg:SetAlpha(0) end, function() errorMsg:SetAlpha(1) end)
+				detailsFramework:CreateAnimation(fadeInAnimationHub, "Alpha", 1, 0.1, 0, 1)
+
+				--shake animation using details framework
+				local shake = detailsFramework:CreateFrameShake(errorMsg, 0.4, 6, 20, false, true, 0, 1, 0, 0.3)
+
+				function mainFrame.ShowErrorMsg(msg)
+					fadeInAnimationHub:Play()
+					mainFrame.ErrorMsg:SetText(msg)
+					mainFrame.ErrorMsg:PlayFrameShake(shake)
+
+					if (errorMsg.HideTimer) then
+						return
+					end
+
+					errorMsg.HideTimer = C_Timer.NewTimer(4, function()
+						fadeOutAnimationHub:Play()
+						errorMsg.HideTimer = nil
+					end)
+				end
+
+
+				--create a texture of size 16 16 with the texture [[Interface\BUTTONS\UI-SliderBar-Button-Vertical]], the point is the same as the whats this text
+				local whatsThisIcon = bottomFrame:CreateTexture(nil, "overlay")
+				whatsThisIcon:SetTexture([[Interface\BUTTONS\UI-SliderBar-Button-Vertical]])
+				whatsThisIcon:SetSize(16, 16)
+				whatsThisIcon:SetPoint("bottomleft", bottomFrame, "bottomleft", 2, 25)
+				whatsThisIcon:SetTexCoord(0.25, 0.75, 0.25, 0.75)
+
+				--make a fontstring with the text: "This panel allows you to create a note and share it with your group. Can contain route info, interrupt order, bloodlust timers, boss order, skips, rogue shroud, etc."
+				local whatsThisText = bottomFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				whatsThisText:SetPoint("left", whatsThisIcon, "right", 5, 0)
+				whatsThisText:SetText("This panel allows you to create a note and share it with your group. Can contain route info, interrupt order, bloodlust timers, boss order, skips, rogue shroud, etc.")
+				whatsThisText:SetWidth(bottomFrame:GetWidth() - 10)
+				whatsThisText:SetJustifyH("left")
+				detailsFramework:SetFontSize(whatsThisText, 12)
+				detailsFramework:SetFontColor(whatsThisText, "orange")
+				whatsThisText:SetAlpha(0.7)
+
+				local warningTextIcon = bottomFrame:CreateTexture(nil, "overlay")
+				warningTextIcon:SetTexture([[Interface\BUTTONS\UI-SliderBar-Button-Vertical]])
+				warningTextIcon:SetSize(16, 16)
+				warningTextIcon:SetPoint("bottomleft", bottomFrame, "bottomleft", 2, 2)
+				warningTextIcon:SetTexCoord(0.25, 0.75, 0.25, 0.75)
+
+				local warningText = bottomFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				warningText:SetPoint("left", warningTextIcon, "right", 5, 0)
+				warningText:SetText("You may report any offensive notes you receive. The text is logged on the server.")
+				warningText:SetAlpha(0.7)
+
+				local versionText = bottomFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				versionText:SetPoint("bottomright", bottomFrame, "bottomright", -2, 2)
+				versionText:SetText("v1.0")
+				versionText:SetAlpha(0.7)
+			end
+
+			do --create a panel below the note selection scroll frame
+				local belowScrollFrame = CreateFrame("frame", "$parentBelowScrollFrame", mainFrame, "BackdropTemplate")
+				detailsFramework:ApplyStandardBackdrop(belowScrollFrame)
+				belowScrollFrame:SetPoint("topleft", mainFrame.NoteSelectionScrollFrame, "bottomleft", 0, -2)
+				belowScrollFrame:SetPoint("topright", mainFrame.NoteSelectionScrollFrame, "bottomright", 0, -2)
+				belowScrollFrame:SetPoint("bottomright", mainFrame.BottomFrame, "topright", 0, 2)
+
+				local reuseText = belowScrollFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+				reuseText:SetPoint("topleft", belowScrollFrame, "topleft", 4, -5)
+				reuseText:SetText("Use dps1 dps2 dps3 healer1 tank1 in order to reuse the note without typing player names.")
+				detailsFramework:SetFontSize(reuseText, 11)
+				detailsFramework:SetFontColor(reuseText, "silver")
+				reuseText:SetWidth(belowScrollFrame:GetWidth() - 6)
+				reuseText:SetJustifyH("left")
+			end
+
+			function mainFrame.RefreshData()
+				local keystoneData = openRaidLib.GetAllKeystonesInfo()
+			end
+		end
+		DetailsNoteFrame:Show()
+	end
+end
+
+local currentSenderName = nil
+local currentNoteId = nil
+
+---@param senderName string
+---@param noteText string
+---@param commId string
+---@param bIsSimulateOnClient boolean
+noteEditor.OpenNoteScreenPanel = function(senderName, noteText, commId, bIsSimulateOnClient)
+	local config = Details.third_party.openraid_notecache
+	currentSenderName = senderName
+
+	if (not bIsSimulateOnClient) then
+		if (not commId or type(commId) ~= "string" or commId:len() < 8) then
+			return
+		end
+		currentNoteId = commId
+	else
+		currentNoteId = nil
+	end
+
+	if (not DetailsNoteScreenFrame) then
+		local screenFrame = CreateFrame("button", "DetailsNoteScreenFrame", UIParent, "BackdropTemplate")
+		screenFrame:SetSize(config.screenpos.width or 275, config.screenpos.height or 350)
+		screenFrame:SetPoint("topleft", UIParent, "topleft", 5, -5)
+		screenFrame:EnableMouse(true)
+		screenFrame:SetFrameStrata("DIALOG")
+		screenFrame:SetMovable(true)
+		screenFrame:SetResizable(true)
+		detailsFramework:AddRoundedCornersToFrame(screenFrame, Details.PlayerBreakdown.RoundedCornerPreset)
+		local red, green, blue = detailsFramework:GetDefaultBackdropColor()
+		screenFrame:SetColor(red, green, blue, 0.98)
+		screenFrame:SetClampedToScreen(true)
+
+		local rightClickFrame = CreateFrame("button", "$parentRightClickFrame", screenFrame)
+		rightClickFrame:SetAllPoints()
+		rightClickFrame:SetScript("OnClick", function(self, button)
+			if (button == "RightButton") then
+				screenFrame:Hide()
+			end
+		end)
+
+		--create a texture to use in a flash animation, this texture is attached to the titleRoundedFrame
+		local flashTexture = screenFrame:CreateTexture(nil, "overlay")
+		flashTexture:SetTexture([[Interface\CHATFRAME\CHATFRAMEBACKGROUND]])
+		flashTexture:SetBlendMode("ADD")
+		flashTexture:SetTexCoord(44/512, 354/512, 50/256, 120/256)
+		flashTexture:SetHeight(40)
+		flashTexture:SetPoint("topleft", screenFrame, "topleft", 0, 0)
+		flashTexture:SetPoint("topright", screenFrame, "topright", 0, 0)
+		screenFrame.FlashTexture = flashTexture
+
+		--create the flash animation usin details framework animation hub
+		local animGroup = detailsFramework:CreateAnimationHub(flashTexture, function() flashTexture:Show() end, function() flashTexture:Hide() end)
+		local flashInAnim = detailsFramework:CreateAnimation(animGroup, "Alpha", 1, 0.1, 0.03, 0.03)
+		local flashOutAnim = detailsFramework:CreateAnimation(animGroup, "Alpha", 2, 0.1, 0.01, 0)
+		local transInAnim = detailsFramework:CreateAnimation(animGroup, "Translation", 1, 0.1, 0, -150)
+		local transOutAnim = detailsFramework:CreateAnimation(animGroup, "Translation", 2, 0.1, 0, -150)
+		animGroup.flashInAnim = flashInAnim
+		animGroup.transInAnim = transInAnim
+		animGroup.flashOutAnim = flashOutAnim
+		animGroup.transOutAnim = transOutAnim
+		flashTexture.FadeInAnimation = animGroup
+
+		local screenFrameFadeInAnimGroup = detailsFramework:CreateAnimationHub(screenFrame, function() flashTexture:Hide() end, function() --[[flashTexture.FadeInAnimation:Play()]] end)
+		local scaleInAnim1 = detailsFramework:CreateAnimation(screenFrameFadeInAnimGroup, "Scale", 1, 0.075, 0, 0, 1.1, 1.1, "center", 0, 0)
+		local scaleInAnim2 = detailsFramework:CreateAnimation(screenFrameFadeInAnimGroup, "Scale", 2, 0.05, 1, 1, 0.9, 0.9, "center", 0, 0)
+		local alphaInAnim = detailsFramework:CreateAnimation(screenFrameFadeInAnimGroup, "Alpha", 1, 0.075, 0, 1)
+		screenFrame.FadeInAnimation = screenFrameFadeInAnimGroup
+
+		local titleRoundedFrame = CreateFrame("frame", "DetailsNoteScreenTitleFrame", screenFrame, "BackdropTemplate")
+		titleRoundedFrame:SetPoint("bottomleft", screenFrame, "topleft", 5, -17)
+		titleRoundedFrame:SetPoint("bottomright", screenFrame, "topright", -5, -17)
+		titleRoundedFrame:SetHeight(34)
+		titleRoundedFrame:SetFrameLevel(screenFrame:GetFrameLevel() - 1)
+		local roundedSettings = detailsFramework.table.copy({}, Details.PlayerBreakdown.RoundedCornerPreset)
+		roundedSettings.roundness = 8
+		detailsFramework:AddRoundedCornersToFrame(titleRoundedFrame, roundedSettings)
+		titleRoundedFrame:SetColor(red-0.02, green-0.02, blue-0.02, 0.94)
+
+		local titleFrameText = titleRoundedFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+		titleFrameText:SetPoint("center", titleRoundedFrame, "center", 0, 8)
+		titleFrameText:SetText("Notes (/note)")
+
+		local LibWindow = LibStub("LibWindow-1.1")
+		LibWindow.RegisterConfig(screenFrame, config.screenpos.position)
+		LibWindow.MakeDraggable(screenFrame)
+		LibWindow.RestorePosition(screenFrame)
+
+		local titleText = screenFrame:CreateFontString(nil, "overlay", "GameFontNormal") --sent by
+		PixelUtil.SetPoint(titleText, "topleft", screenFrame, "topleft", 3, -3)
+		titleText:SetAlpha(0.934)
+		detailsFramework:SetFontSize(titleText, 11)
+
+		--create a report button to report the sender
+		local reportButton = detailsFramework:CreateButton(screenFrame, function()end, 100, 20, REPORT_PLAYER)
+		PixelUtil.SetPoint(reportButton, "topright", screenFrame, "topright", -26, 0)
+		reportButton:SetAlpha(0.934)
+		reportButton.textsize = 11
+		screenFrame.ReportButton = reportButton
+
+		local rightClickToCloseText = screenFrame:CreateFontString(nil, "overlay", "GameFontNormal")
+		rightClickToCloseText:SetPoint("center", screenFrame, "center", 0, 0)
+		rightClickToCloseText:SetPoint("bottom", screenFrame, "bottom", 0, 27)
+		rightClickToCloseText:SetAlpha(0.934)
+		rightClickToCloseText:SetText("Right Click to Close")
+		detailsFramework:SetFontSize(rightClickToCloseText, 14)
+
+		--create close button in the top right corner, can use the framework
+		local closeButton = detailsFramework:CreateButton(screenFrame, function() screenFrame:Hide() end, 20, 20)
+		closeButton:SetIcon("perks-dropdown-clear", 16, 16, "overlay", {.4, .6, .4, .6})
+		closeButton:SetPoint("topright", screenFrame, "topright", 8, -1)
+		closeButton:SetAlpha(0.634)
+		closeButton.icon:SetDesaturated(true)
+
+		--text area for the note
+		local textArea = CreateFrame("EditBox", "$parentTextArea", screenFrame, "BackdropTemplate")
+		textArea:SetPoint("topleft", screenFrame, "topleft", 3, -27)
+		textArea:SetPoint("bottomright", screenFrame, "bottomright", -2, 22)
+		textArea:ClearFocus()
+		textArea:EnableMouse(false)
+		textArea:SetScript("OnEditFocusGained", function(self)
+			self:ClearFocus()
+		end)
+		textArea:SetFontObject("GameFontNormal")
+		textArea:SetMultiLine(true)
+		textArea:SetTextColor(1, 1, 1)
+		textArea:SetAlpha(0.934)
+
+		local resizerButton = CreateFrame("button", "$parentReziser", screenFrame)
+		resizerButton:SetSize(20, 20)
+		resizerButton:SetAlpha(0.734)
+		resizerButton:SetPoint("bottomright", screenFrame, "bottomright", -2, 2)
+		resizerButton:SetNormalTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Up")
+		resizerButton:SetPushedTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Down")
+		resizerButton:SetHighlightTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Highlight")
+
+		resizerButton:SetScript("OnMouseDown", function()
+			screenFrame:StartSizing("BOTTOMRIGHT")
+		end)
+		resizerButton:SetScript("OnMouseUp", function()
+			screenFrame:StopMovingOrSizing()
+			config.screenpos.width = screenFrame:GetWidth()
+			config.screenpos.height = screenFrame:GetHeight()
+		end)
+
+		local banSender = detailsFramework:CreateButton(screenFrame, function()
+			config.banlist[senderName] = true
+			screenFrame:Hide()
+		end, 110, 20, "Ignore Sender")
+		--banSender:SetPoint("bottomleft", screenFrame, "bottomleft", 4, 4)
+		banSender:SetPoint("bottomright", screenFrame, "bottom", -1, 4)
+		banSender:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+		banSender:SetIcon([[Interface\Scenarios\ScenarioIcon-Fail]], 16, 16, "overlay")
+		banSender:SetAlpha(0.934)
+
+		local optionsButton = detailsFramework:CreateButton(screenFrame, function()
+			noteEditor.OpenNoteOptionsPanel()
+		end, 110, 20, "OPTIONS")
+		--optionsButton:SetPoint("bottomleft", banSender, "bottomright", 4, 0)
+		optionsButton:SetPoint("bottomleft", screenFrame, "bottom", 1, 4)
+		optionsButton:SetTemplate(detailsFramework:GetTemplate("button", "OPTIONS_BUTTON_TEMPLATE"))
+		optionsButton:SetIcon([[Interface\Scenarios\ScenarioIcon-Interact]], 16, 16, "overlay")
+		optionsButton:SetAlpha(0.934)
+
+		screenFrame.TextArea = textArea
+		screenFrame.TitleText = titleText
+		screenFrame.CloseButton = closeButton
+		screenFrame.ResizerButton = resizerButton
+
+		function screenFrame.SetNote(sender, text)
+			text = detailsFramework:Trim(text)
+
+			local unitRole = UnitGroupRolesAssigned(sender)
+			if (unitRole and unitRole ~= "NONE") then
+				local size = 16
+				sender = detailsFramework:AddRoleIconToText(sender, unitRole, size)
+			end
+
+			screenFrame.TitleText:SetText("From: " .. sender)
+
+			--find all unit names in the text and color them
+			text = noteEditor.FindAndColorUnitNames(text)
+
+			if (IsInRaid()) then
+				--no need to replace them on party as the token are already changed before the note is sent
+				text = noteEditor.ParseNoteText(text)
+			end
+
+			screenFrame.TextArea:SetText(text)
+
+			detailsFramework:SetFontSize(screenFrame.TextArea, config.fontsize)
+			screenFrame:Show()
+		end
+
+		function screenFrame.RefreshNoteTextSettings()
+			detailsFramework:SetFontSize(screenFrame.TextArea, config.fontsize)
+		end
+
+		function screenFrame.RefreshFrameSettings()
+			rightClickToCloseText:Show()
+
+			if (config.leftclickthrough and config.rightclickthrough) then
+				screenFrame:EnableMouse(false)
+				rightClickFrame:EnableMouse(false)
+				rightClickToCloseText:Hide()
+
+			elseif (config.leftclickthrough) then
+				screenFrame:EnableMouse(false)
+				rightClickFrame:EnableMouse(true)
+				rightClickFrame:RegisterForClicks("RightButtonDown")
+				rightClickFrame:RegisterForMouse("RightButtonDown")
+				rightClickFrame:SetPassThroughButtons("LeftButton")
+
+			elseif (config.rightclickthrough) then
+				screenFrame:EnableMouse(true)
+				screenFrame:RegisterForDrag("LeftButton")
+				screenFrame:RegisterForMouse("LeftButtonDown", "LeftButtonUp") --here the right click should be passed throught
+				screenFrame:SetPassThroughButtons("RightButton")
+				rightClickFrame:EnableMouse(false)
+				rightClickToCloseText:Hide()
+
+			else
+				screenFrame:EnableMouse(true)
+				screenFrame:RegisterForDrag("LeftButton")
+				rightClickFrame:EnableMouse(true)
+				rightClickFrame:RegisterForClicks("RightButtonDown")
+				rightClickFrame:RegisterForMouse("RightButtonDown")
+				rightClickFrame:SetPassThroughButtons("LeftButton")
+			end
+
+			local screenRed, screenGreen, screenBlue = unpack(config["framecolor"])
+			screenFrame:SetColor(screenRed, screenGreen, screenBlue, detailsFramework.Math.InvertInRange(0, 1, config["transparency"]))
+			titleRoundedFrame:SetColor(max(screenRed-0.02, 0), max(screenGreen-0.02, 0), max(screenBlue-0.02, 0), detailsFramework.Math.InvertInRange(0, 1, config["transparency"]))
+			titleRoundedFrame:SetShown(config["showheader"])
+
+			if (config.rightclickthrough) then
+				rightClickToCloseText:Hide()
+			else
+				rightClickToCloseText:SetShown(config["showrightclicktoclose"])
+			end
+
+			screenFrame:SetSize(config.screenpos.width or 275, config.screenpos.height or 350)
+
+			closeButton:SetShown(config["showclosebutton"])
+			banSender:SetShown(config["showbansenderbutton"])
+			optionsButton:SetShown(config["showoptionsbutton"])
+			resizerButton:SetShown(config["showresizebutton"])
+		end
+	end
+
+	local screenFrame = DetailsNoteScreenFrame
+
+	if (currentNoteId) then
+		screenFrame.ReportButton:SetClickFunction(function()
+			--open a dialog to report the sender
+			local reportType = 0 --chat
+			local playerLocation = nil
+			local bIsBnetReport = false
+			local bSendReportWithoutDialog = false
+
+			local reportInfo = ReportInfo:CreateReportInfoFromType(reportType)
+			reportInfo:SetReportTarget(currentSenderName)
+
+			ReportFrame:SetMajorType(Enum.ReportMajorCategory.InappropriateCommunication)
+			ReportFrame:InitiateReport(reportInfo, currentSenderName, playerLocation, bIsBnetReport, bSendReportWithoutDialog)
+			ReportFrame:MajorTypeSelected(reportType, Enum.ReportMajorCategory.InappropriateCommunication)
+			ReportFrame.Comment.EditBox:SetText("NOTEID: #" .. currentNoteId)
+		end)
+
+		screenFrame.ReportButton:Show()
+	else
+		screenFrame.ReportButton:Hide()
+	end
+
+	if (not config["tutorial1"]) then --~helptip
+		local helpTipInfo = {
+			text = "You received a note from another player.\n\nThis note contains instructions for the content you are about to engage in.\n\nIf the note is offensive, you may report the player to Blizzard using the 'Report Player' button.",
+			buttonStyle = HelpTip.ButtonStyle.Close,
+			targetPoint = HelpTip.Point.RightEdgeCenter,
+			offsetX = 8,
+			onHideCallback = function() config["tutorial1"] = true end,
+		}
+		HelpTip:Show(screenFrame, helpTipInfo)
+	end
+
+	screenFrame.RefreshNoteTextSettings()
+	screenFrame.RefreshFrameSettings()
+	screenFrame.SetNote(senderName, noteText)
+
+	local screenFrameHeight = screenFrame:GetHeight()
+	screenFrame.FlashTexture.FadeInAnimation.transInAnim:SetOffset(0, -screenFrameHeight/2)
+	local endOffset = ((screenFrameHeight/2) - (screenFrameHeight/8)) * -1
+	screenFrame.FlashTexture.FadeInAnimation.transOutAnim:SetOffset(0, endOffset)
+	screenFrame.FadeInAnimation:Play()
+end
+
+function Details222.Notes.RegisterForOpenRaidNotes()
+	local config = Details.third_party.openraid_notecache
+	--ñotedefault ~notedefault
+	config["banlist"] = config["banlist"] or {}
+	config["framepos"] = config["framepos"] or {scale = 1, position = {}}
+	config["screenpos"] = config["screenpos"] or {scale = 1, position = {}}
+	config["notes"] = config["notes"] or {}
+	config["fontsize"] = config["fontsize"] or 12
+	config["transparency"] = config["transparency"] or 0.02
+
+	if (not config["framecolor"]) then
+		local red, green, blue = detailsFramework:GetDefaultBackdropColor()
+		config["framecolor"] = {red, green, blue}
+	end
+
+	if (type(config["tutorial1"]) ~= "boolean") then
+		config["tutorial1"] = false
+	end
+	if (type(config["enabled"]) ~= "boolean") then
+		config["enabled"] = true
+	end
+	if (type(config["printtochat"]) ~= "boolean") then
+		config["printtochat"] = false
+	end
+	if (type(config["leftclickthrough"]) ~= "boolean") then
+		config["leftclickthrough"] = false
+	end
+	if (type(config["rightclickthrough"]) ~= "boolean") then
+		config["rightclickthrough"] = false
+	end
+	if (type(config["showheader"]) ~= "boolean") then --to show the "Notes (/note)"
+		config["showheader"] = true
+	end
+	if (type(config["showrightclicktoclose"]) ~= "boolean") then --to show the "right click to close"
+		config["showrightclicktoclose"] = true
+	end
+	if (type(config["showclosebutton"]) ~= "boolean") then
+		config["showclosebutton"] = true
+	end
+	if (type(config["showbansenderbutton"]) ~= "boolean") then
+		config["showbansenderbutton"] = true
+	end
+	if (type(config["showoptionsbutton"]) ~= "boolean") then
+		config["showoptionsbutton"] = true
+	end
+	if (type(config["showresizebutton"]) ~= "boolean") then
+		config["showresizebutton"] = true
+	end
+
+	local openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+	if (openRaidLib) then
+		--registering the callback:
+		local object = {
+			---@param unitId string
+			---@param unitNote unitnote
+			---@param allUnitsNote table<actorname, unitnote>
+			OnNoteUpdate = function(unitId, unitNote, allUnitsNote)
+				if (not config.enabled) then
+					return
+				end
+
+				local unitName = GetUnitName(unitId, true)
+				if (config.banlist[unitName]) then
+					return
+				end
+
+				local zoneName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, instanceMapID, instanceGroupSize = GetInstanceInfo()
+				if (not canAcceptNoteOn[difficultyID] and not Details.debug) then --at the moment, players can only receive notes if inside a mythic dungeon
+					return
+				end
+
+				if (config.printtochat) then
+					print("|cFFFFAA00 Note Sent by:", unitName, "|r")
+					print(unitNote.note)
+				else
+					noteEditor.OpenNoteScreenPanel(unitName, unitNote.note, unitNote.commId, false)
+				end
+			end
+		}
+		openRaidLib.RegisterCallback(object, "NoteUpdated", "OnNoteUpdate")
+	end
+end
+
+local checkForRegisteredNoteCommandOverride = function(command)
+	local commandRegisteredCallbacks = noteCallbacks[command]
+
+	--if there is addons registered to use the keystone command, call them and do not show the default frame from details!
+	if (#commandRegisteredCallbacks > 0) then
+		--loop through all registered addons and call their callback function
+		local bCallbackSuccess = false
+		for i = 1, #commandRegisteredCallbacks do
+			local thisCallback = commandRegisteredCallbacks[i]
+
+			local addonObject = thisCallback.addonObject
+			local memberName = thisCallback.memberName
+			local payload = thisCallback.payload
+
+			if (type(addonObject[memberName]) == "function") then
+				local result = detailsFramework:Dispatch(addonObject[memberName], unpack(payload)) --uses xpcall
+				if (result ~= false) then
+					bCallbackSuccess = true
+				end
+			end
+		end
+
+		if (bCallbackSuccess) then
+			return true
+		end
+	end
+end
+
+function SlashCmdList.NOTE(msg, editbox)
+	if (checkForRegisteredNoteCommandOverride("NOTE")) then
+		return
+	else
+		noteEditor.OpenNoteEditor()
+	end
+end
+
+function SlashCmdList.NOTES(msg, editbox)
+	if (checkForRegisteredNoteCommandOverride("NOTES")) then
+		return
+	else
+		noteEditor.OpenNoteEditor()
+	end
+end
+
+function SlashCmdList.NOTEPAD(msg, editbox)
+	if (checkForRegisteredNoteCommandOverride("NOTEPAD")) then
+		return
+	else
+		noteEditor.OpenNoteEditor()
+	end
+end
+
+--debugging
+C_Timer.After(3, function()
+	--noteEditor.OpenNoteEditor()
+end)
+C_Timer.After(0, function()
+	if (SubscriptionInterstitialFrame) then
+		if (SubscriptionInterstitialFrame:IsShown()) then
+			SubscriptionInterstitialFrame.ClosePanelButton:Click()
+		end
+	end
+end)
+

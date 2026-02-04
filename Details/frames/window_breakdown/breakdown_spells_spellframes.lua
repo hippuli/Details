@@ -6,13 +6,17 @@ local SharedMedia = LibStub:GetLibrary("LibSharedMedia-3.0")
 local unpack = unpack
 local GetTime = GetTime
 local CreateFrame = CreateFrame
-local GetSpellLink = GetSpellLink
-local GetSpellInfo = GetSpellInfo
+local GetSpellLink = GetSpellLink or C_Spell.GetSpellLink --api local
+local GetSpellInfo = Details222.GetSpellInfo
 local _GetSpellInfo = Details.GetSpellInfo
 local GameTooltip = GameTooltip
 local IsShiftKeyDown = IsShiftKeyDown
-local DF = DetailsFramework
 local tinsert = table.insert
+
+---@type detailsframework
+local DF = DetailsFramework
+---@type detailsframework
+local detailsFramework = DetailsFramework
 
 local spellsTab = DetailsSpellBreakdownTab
 
@@ -111,21 +115,24 @@ local onEnterSpellTarget = function(targetFrame)
 	end
 
 	---@type number the top value of targets
-	local topValue = targets[1] and targets[1][2] or 0
+	local topValue = math.max(targets[1] and targets[1][2] or 0, 0.001)
 
-	local cooltip = GameCooltip
-	cooltip:Preset(2)
+	local gameCooltip = GameCooltip
+	--cooltip:Preset(2)
+	Details:FormatCooltipForSpells()
+	gameCooltip:SetOption("FixedWidth", 260)
+	gameCooltip:SetOption("YSpacingMod", -8)
 
 	for targetIndex, targetTable in ipairs(targets) do
 		local targetName = targetTable[1]
 		local value = targetTable[2]
-		cooltip:AddLine(targetIndex .. ". " .. targetName, Details:Format(value))
-		GameCooltip:AddIcon(CONST_TARGET_TEXTURE, 1, 1, 14, 14)
+		gameCooltip:AddLine(targetIndex .. ". " .. targetName, Details:Format(value))
+		gameCooltip:AddIcon(CONST_TARGET_TEXTURE, 1, 1, 20, 20)
 		Details:AddTooltipBackgroundStatusbar(false, value / topValue * 100)
 	end
 
-	cooltip:SetOwner(targetFrame)
-	cooltip:Show()
+	gameCooltip:SetOwner(targetFrame)
+	gameCooltip:Show()
 end
 
 local onLeaveSpellTarget = function(self)
@@ -168,6 +175,7 @@ local onEnterSpellBar = function(spellBar, motion) --parei aqui: precisa por nom
 	end
 
 	spellsTab.currentSpellBar = spellBar
+	Details222.FocusedSpellId = spellBar.spellId
 
     ---@type instance
     local instance = spellsTab.GetInstance()
@@ -176,7 +184,7 @@ local onEnterSpellBar = function(spellBar, motion) --parei aqui: precisa por nom
 	local combatObject = spellsTab.GetCombat()
 
 	---@type number, number
-	local mainAttribute, subAttribute = instance:GetDisplay()
+	local mainAttribute, subAttribute = Details:GetDisplayTypeFromBreakdownWindow()
 
 	---@type breakdownspellblockframe
 	local spellBlockContainer = spellsTab.GetSpellBlockFrame()
@@ -189,7 +197,7 @@ local onEnterSpellBar = function(spellBar, motion) --parei aqui: precisa por nom
 	local elapsedTime = spellBar.combatTime --this should be actorObject:Tempo()
 
 	---@type string
-	local actorName = spellsTab.GetActor():Name() --attempt to index a nil value
+	local actorName = spellsTab.GetActor():Name() --attempt to index a nil value x2
 
 	---@type spelltable
 	local spellTable = spellBar.spellTable
@@ -332,10 +340,15 @@ local onEnterSpellBar = function(spellBar, motion) --parei aqui: precisa por nom
 			local normalAverage = spellTable.n_total / math.max(normalHitsAmt, 0.0001)
 			blockLine3.leftText:SetText(Loc ["STRING_AVERAGE"] .. ": " .. Details:CommaValue(normalAverage))
 
-			local tempo = (elapsedTime * spellTable.n_total) / math.max(spellTable.total, 0.001)
-			local normalAveragePercent = spellBar.average / normalAverage * 100
-			local normalTempoPercent = normalAveragePercent * tempo / 100
-			blockLine3.rightText:SetText(Loc ["STRING_HPS"] .. ": " .. Details:CommaValue(spellTable.n_total / normalTempoPercent))
+            local normalHPS = 0
+            if (spellTable.n_total > 0) then
+				local tempo = (elapsedTime * spellTable.n_total) / math.max(spellTable.total, 0.001)
+				local normalAveragePercent = spellBar.average / normalAverage * 100
+				local normalTempoPercent = normalAveragePercent * tempo / 100
+				normalHPS = spellTable.n_total / normalTempoPercent
+			end
+
+            blockLine3.rightText:SetText(Loc ["STRING_HPS"] .. ": " .. Details:CommaValue(normalHPS))
 		end
 
 		---@type number
@@ -360,10 +373,15 @@ local onEnterSpellBar = function(spellBar, motion) --parei aqui: precisa por nom
 			local critAverage = spellTable.c_total / math.max(criticalHitsAmt, 0.0001)
 			blockLine3.leftText:SetText(Loc ["STRING_AVERAGE"] .. ": " .. Details:CommaValue(critAverage))
 
-			local tempo = (elapsedTime * spellTable.c_total) / math.max(spellTable.total, 0.001)
-			local critAveragePercent = spellBar.average / critAverage * 100
-			local critTempoPercent = critAveragePercent * tempo / 100
-			blockLine3.rightText:SetText(Loc ["STRING_HPS"] .. ": " .. Details:CommaValue(spellTable.c_total / critTempoPercent))
+            local critHPS = 0
+            if (spellTable.c_total > 0) then
+                local tempo = (elapsedTime * spellTable.c_total) / math.max(spellTable.total, 0.001)
+                local critAveragePercent = spellBar.average / critAverage * 100
+                local critTempoPercent = critAveragePercent * tempo / 100
+                critHPS = spellTable.c_total / critTempoPercent
+            end
+
+            blockLine3.rightText:SetText(Loc ["STRING_HPS"] .. ": " .. Details:CommaValue(critHPS))
 		end
 
 		---@type number
@@ -509,7 +527,7 @@ local spellBlockMixin = {
 function spellsTab.CreateSpellBlock(spellBlockContainer, index) --~breakdownspellblock ~create ~spellblocks
 	---@type breakdownspellblock
 	local spellBlock = CreateFrame("statusbar", "$parentBlock" .. index, spellBlockContainer, "BackdropTemplate")
-	DetailsFramework:Mixin(spellBlock, spellBlockMixin)
+	detailsFramework:Mixin(spellBlock, spellBlockMixin)
 
 	local statusBarTexture = spellBlock:CreateTexture("$parentTexture", "artwork")
 	statusBarTexture:SetColorTexture(unpack(CONST_SPELLBLOCK_DEFAULT_COLOR))
@@ -568,7 +586,7 @@ function spellsTab.CreateSpellBlock(spellBlockContainer, index) --~breakdownspel
 	spellBlock.sparkTexture:SetTexture("Interface\\AddOns\\Details\\images\\bar_detalhes2_end")
 	spellBlock.sparkTexture:SetBlendMode("ADD")
 
-    local gradientDown = DetailsFramework:CreateTexture(spellBlock, {gradient = "vertical", fromColor = {0, 0, 0, 0.1}, toColor = "transparent"}, 1, spellBlock:GetHeight(), "background", {0, 1, 0, 1})
+    local gradientDown = detailsFramework:CreateTexture(spellBlock, {gradient = "vertical", fromColor = {0, 0, 0, 0.1}, toColor = "transparent"}, 1, spellBlock:GetHeight(), "background", {0, 1, 0, 1})
     gradientDown:SetPoint("bottoms")
 	spellBlock.gradientTexture = gradientDown
 	spellBlock.gradientTexture:Hide()
@@ -774,7 +792,7 @@ function spellsTab.CreateSpellBlockContainer(tabFrame) --~create ~createblock ~s
 	spellBlockFrame:SetResizable(false)
 	spellBlockFrame:SetMovable(false)
 	spellBlockFrame:SetAllPoints()
-	DetailsFramework:Mixin(spellBlockFrame, spellBlockContainerMixin)
+	detailsFramework:Mixin(spellBlockFrame, spellBlockContainerMixin)
 
 	tabFrame.SpellBlockFrame = spellBlockFrame
 	spellsTab.SpellBlockFrame = spellBlockFrame
@@ -956,7 +974,7 @@ local updateSpellBar = function(spellBar, index, actorName, combatObject, scroll
 
 		spellBar.spellId = spellId
 		spellBar.spellIconFrame.spellId = spellId
-		spellBar.statusBar.backgroundTexture:SetAlpha(Details.breakdown_spell_tab.spellbar_background_alpha)
+		--spellBar.statusBar.backgroundTexture:SetAlpha(Details.breakdown_spell_tab.spellbar_background_alpha)
 
 		--statusbar color by school
 		local r, g, b = Details:GetSpellSchoolColor(spellTable.spellschool or 1)
@@ -1011,10 +1029,12 @@ local updateSpellBar = function(spellBar, index, actorName, combatObject, scroll
 				--update the texture taking the state of the expanded value
 				if (bIsSpellExpaded) then
 					spellBar.expandButton.texture:SetTexture([[Interface\AddOns\Details\images\arrow_face_down]])
-					spellBar.expandButton.texture:SetTexCoord(0, 1, 1, 0)
+					--spellBar.expandButton.texture:SetTexCoord(0, 1, 0, 1)
+					spellBar.expandButton.texture:SetRotation(0)
 				else
 					spellBar.expandButton.texture:SetTexture([[Interface\AddOns\Details\images\arrow_face_down]])
-					spellBar.expandButton.texture:SetTexCoord(0, 1, 0, 1)
+					--spellBar.expandButton.texture:SetTexCoord(0, 1, 0, 1)
+					spellBar.expandButton.texture:SetRotation(math.pi/2)
 				end
 
 				spellBar.expandButton.texture:SetAlpha(0.7)
@@ -1077,7 +1097,13 @@ local updateSpellBar = function(spellBar, index, actorName, combatObject, scroll
 			textIndex = textIndex + 1
 
 		elseif (header.name == "uptime") then --need to get the uptime of the spell with the biggest uptime
-			text:SetText(string.format("%.1f", uptime / combatTime * 100) .. "%")
+			local uptimePercent = uptime / combatTime * 100
+			if (uptimePercent > 0) then
+				text:SetText(string.format("%.1f", uptime / combatTime * 100) .. "%")
+			else
+				text:SetText("")
+			end
+
 			spellBar:AddFrameToHeaderAlignment(text)
 			textIndex = textIndex + 1
 
@@ -1181,6 +1207,8 @@ local refreshSpellsFunc = function(scrollFrame, scrollData, offset, totalLines) 
 					if (bIsActorHeader) then
 						nameToUse = bkSpellData.actorName
 					end
+
+					
 
 					--both calls are equal but the traceback will be different in case of an error
 					if (bIsActorHeader) then
@@ -1297,7 +1325,6 @@ function spellsTab.CreateSpellScrollContainer(tabFrame) --~scroll ~create ~spell
 	--amount of lines which will be created for the scrollframe
 	local defaultAmountOfLines = 50
 
-    --replace this with a framework scrollframe
 	---@type breakdownspellscrollframe
 	local scrollFrame = DF:CreateScrollBox(container, "$parentSpellScroll", refreshSpellsFunc, {}, width, height, defaultAmountOfLines, CONST_SPELLSCROLL_LINEHEIGHT)
 	DF:ReskinSlider(scrollFrame)
@@ -1311,6 +1338,52 @@ function spellsTab.CreateSpellScrollContainer(tabFrame) --~scroll ~create ~spell
 	spellsTab.SpellScrollFrame = scrollFrame
 
 	spellsTab.ApplyStandardBackdrop(container, scrollFrame)
+
+	---@param self breakdownphasescrollframe
+	---@return breakdownreporttable
+	function scrollFrame:GetReportData()
+		local instance = spellsTab.GetInstance()
+
+		---@type breakdownspelldatalist
+		local data = self:GetData()
+
+		local formatFunc = Details:GetCurrentToKFunction()
+		local actorObject = spellsTab.GetActor()
+		local displayId, subDisplayId = instance:GetDisplay()
+		local subDisplayName = Details:GetSubAttributeName(displayId, subDisplayId)
+		local combatName = instance:GetCombat():GetCombatName()
+
+		---@type breakdownreporttable
+		local reportData = {
+			title = subDisplayName .. " for " .. detailsFramework:RemoveRealmName(actorObject:Name()) .. " | " .. combatName
+		}
+
+		local topValue = data[1] and data[1].total or 0
+
+		for i = 1, #data do
+			---@type spelltableadv
+			local bkSpellData = data[i]
+			local spellId = bkSpellData.id
+			local spellName = Details.GetSpellInfo(spellId)
+
+			if (not spellName) then
+				--dumpt(bkSpellData)
+				if (bkSpellData.npcId) then
+					spellName = detailsFramework:CleanUpName(bkSpellData.actorName)
+				end
+			else
+				spellName = detailsFramework:CleanUpName(spellName)
+			end
+
+			reportData[#reportData+1] = {
+				name = spellName,
+				amount = formatFunc(nil, bkSpellData.total),
+				percent = string.format("%.1f", bkSpellData.total/topValue*100) .. "%",
+			}
+		end
+
+		return reportData
+	end
 
 	--~header
 	local headerOptions = {
@@ -1360,7 +1433,8 @@ function spellsTab.CreateSpellScrollContainer(tabFrame) --~scroll ~create ~spell
 		---@type combat
 		local combatObject = spellsTab.GetCombat()
 		---@type number, number
-		local mainAttribute, subAttribute = spellsTab.GetInstance():GetDisplay()
+		--local mainAttribute, subAttribute = spellsTab.GetInstance():GetDisplay()
+		--local mainAttribute, subAttribute = Details:GetDisplayTypeFromBreakdownWindow()
 
 		--filling necessary information to sort the data by the selected header column
 		for i = 1, #data do
@@ -1487,6 +1561,7 @@ function spellsTab.CreateSpellBar(self, index) --~spellbar ~spellline ~spell ~cr
 	local spellIcon = spellIconFrame:CreateTexture("$parentTexture", "overlay")
 	spellIcon:SetAllPoints()
 	spellIcon:SetTexCoord(.1, .9, .1, .9)
+	detailsFramework:SetMask(spellIcon, Details:GetTextureAtlas("iconmask"))
 	spellBar.spellIcon = spellIcon
 
 	--create a square frame which is placed at the right side of the line to show which targets for damaged by the spell

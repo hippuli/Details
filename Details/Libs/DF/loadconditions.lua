@@ -24,6 +24,7 @@ local GetTalentInfoByID = GetTalentInfoByID ---@diagnostic disable-line
 local IS_WOW_PROJECT_MAINLINE = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE ---@diagnostic disable-line
 local IS_WOW_PROJECT_NOT_MAINLINE = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE ---@diagnostic disable-line
 local IS_WOW_PROJECT_CLASSIC_ERA = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC ---@diagnostic disable-line
+local IS_WOW_PROJECT_MIDNIGHT = detailsFramework.IsAddonApocalypseWow() ---@diagnostic disable-line
 
 local PixelUtil = PixelUtil or DFPixelUtil  ---@diagnostic disable-line
 local UnitGroupRolesAssigned = detailsFramework.UnitGroupRolesAssigned
@@ -81,16 +82,48 @@ Shielding 535593 137
 --]=]
 
 local deprecatedAffixes = {
+	[1] = true, --Overflowing
 	[2] = true, --Skittish
+	[3] = true, --Volcanic
+	[4] = true, --Necrotic
 	[5] = true, --Teeming
+	[6] = true, --Raging
+	[7] = true, --Bolstering
+	[8] = true, --Sanguine
+	--[9] = true, --Tyrannical
+	--[10] = true, --Fortified
+	[11] = true, --Bursting
+	[12] = true, --Grievous
+	[13] = true, --Explosive
+	[14] = true, --Quaking
 	[16] = true, --Infested
 	[117] = true, --Reaping
 	[119] = true, --Beguiling
-	[13] = true, --Explosive
-	[14] = true, --Quaking
 	[120] = true, --Awakened
 	[121] = true, --Prideful
+	[122] = true, --Inspiring
+	[123] = true, --Spiteful
+	[124] = true, --Storming
+	[128] = true, --Tormented
+	[129] = true, --Infernal
 	[130] = true, --Encrypted
+	[131] = true, --Shrouded
+	[132] = true, --Thundering
+	[133] = true, --Focused
+	[134] = true, --Entangling
+	[135] = true, --Afflicted
+	[136] = true, --Incorporeal
+	[137] = true, --Shielding
+	[144] = true, --Thorned
+	[145] = true, --Reckless
+	[146] = true, --Attuned
+	--[147] = true, --Xal'atath's Guile
+	--[148] = true, --Xal'atath's Bargain: Ascendant
+	--[152] = true, --Challenger's Peril
+	--[153] = true, --Xal'atath's Bargain: Frenzied
+	--[158] = true, --Xal'atath's Bargain: Voidbound
+	--[159] = true, --Xal'atath's Bargain: Oblivion
+	--[160] = true, --Xal'atath's Bargain: Devour
 }
 
 local default_load_conditions_frame_options = {
@@ -100,28 +133,64 @@ local default_load_conditions_frame_options = {
 
 function detailsFramework:CreateLoadFilterParser(callback)
 	local filterFrame = CreateFrame("frame")
-	filterFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 	if IS_WOW_PROJECT_MAINLINE then
 		filterFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+		filterFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
+		filterFrame:RegisterEvent("CHALLENGE_MODE_START")
+	else
+		filterFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 		filterFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 	end
 
 	filterFrame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 	filterFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
-	if IS_WOW_PROJECT_MAINLINE then
-		filterFrame:RegisterEvent("CHALLENGE_MODE_START")
-	end
-
 	filterFrame:RegisterEvent("ENCOUNTER_START")
 	filterFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 	filterFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+
+	filterFrame:RegisterEvent("CHAT_MSG_LOOT")
 
 	filterFrame:SetScript("OnEvent", function(self, event, ...)
 		if (event == "ENCOUNTER_START") then --triggers before regen_disabled
 			local encounterID = ...
 			filterFrame.EncounterIDCached = encounterID
+
+		elseif (event == "CHAT_MSG_LOOT") then
+			local message = ...
+			if IS_WOW_PROJECT_MIDNIGHT and issecretvalue(message) then return end
+			local itemId = message:match("|Hitem:(%d+):")
+			itemId = tonumber(itemId)
+
+			if (itemId == 191140) then
+				xpcall(callback, geterrorhandler(), "RACE_START")
+				--monitor the player backpack each second to know when the item is removed from the bag
+
+				C_Timer.After(5, function()
+					filterFrame.FindBackpackItem = C_Timer.NewTicker(1, function()
+						local bFoundItem = false
+						for bagId = 0, 4 do
+							for slotId = 1, 32 do
+								local bagItemID = C_Container.GetContainerItemID(bagId, slotId)
+								if (bagItemID) then
+									if (bagItemID == itemId) then
+										--bronze timepiece is on the player backpack
+										return
+									end
+								end
+							end
+						end
+
+						if (not bFoundItem) then
+							filterFrame.FindBackpackItem:Cancel()
+							xpcall(callback, geterrorhandler(), "RACE_STOP")
+							return
+						end
+					end)
+				end)
+			end
+			return
 
 		elseif (event == "PLAYER_REGEN_DISABLED") then
 
@@ -158,7 +227,8 @@ function detailsFramework:CreateLoadFilterParser(callback)
 			detailsFramework.CurrentPlayerRole = assignedRole
 		end
 
-		detailsFramework:QuickDispatch(callback, filterFrame.EncounterIDCached)
+		--problem: this xpcall won't tell where the error happened in the callback code
+		xpcall(callback, geterrorhandler(), filterFrame.EncounterIDCached)
 	end)
 end
 
@@ -278,7 +348,8 @@ function detailsFramework:PassLoadFilters(loadTable, encounterID)
 			return false, "M+ Affix"
 		end
 
-		local level, affixes, wasEnergized = C_ChallengeMode.GetActiveKeystoneInfo()
+		local GetActiveKeystoneInfo = C_ChallengeMode.GetActiveKeystoneInfo or function() return 0, {}, false end -- ensure all three return values.
+		local level, affixes, wasEnergized = GetActiveKeystoneInfo()
 		local hasAffix = false
 		for _, affixID in ipairs(affixes) do
 			if affixID and(loadTable.affix[affixID] or loadTable.affix[affixID .. ""]) then
@@ -348,7 +419,7 @@ function detailsFramework:OpenLoadConditionsPanel(optionsTable, callback, frameO
 	detailsFramework:UpdateLoadConditionsTable(optionsTable)
 
 	if (not loadConditionsFrame) then
-		loadConditionsFrame = detailsFramework:CreateSimplePanel(UIParent, 1024, 600, "Load Conditions", "loadConditionsFrame")
+		loadConditionsFrame = detailsFramework:CreateSimplePanel(UIParent, 1024, 620, "Load Conditions", "loadConditionsFrame")
 		loadConditionsFrame:SetBackdropColor(0, 0, 0, 1)
 		loadConditionsFrame.AllRadioGroups = {}
 		loadConditionsFrame.AllTextEntries = {}
@@ -693,8 +764,11 @@ function detailsFramework:OpenLoadConditionsPanel(optionsTable, callback, frameO
 		--create radio for character roles
 			local roleTypes = {}
 			for _, roleTable in ipairs(detailsFramework:GetRoleTypes()) do
+				local texture, l, r, t, b = detailsFramework:GetRoleIconAndCoords(roleTable.ID)
 				table.insert(roleTypes, {
-					name = (roleTable.Texture .. " " .. roleTable.Name),
+					name = roleTable.Name,
+					texture = texture,
+					texcoord = {l, r, t, b},
 					set = loadConditionsFrame.OnRadioCheckboxClick,
 					param = roleTable.ID,
 					get = function() return loadConditionsFrame.OptionsTable.role [roleTable.ID] or loadConditionsFrame.OptionsTable.role [roleTable.ID .. ""] end,
@@ -709,8 +783,9 @@ function detailsFramework:OpenLoadConditionsPanel(optionsTable, callback, frameO
 		--create radio group for mythic+ affixes
 			if IS_WOW_PROJECT_MAINLINE then
 				local affixes = {}
+				local GetAffixInfo = C_ChallengeMode.GetAffixInfo or function() return nil end
 				for i = 2, 1000 do
-					local affixName, desc, texture = C_ChallengeMode.GetAffixInfo(i)
+					local affixName, desc, texture = GetAffixInfo(i)
 					if (affixName and not deprecatedAffixes[i]) then
 						table.insert(affixes, {
 							name = affixName,
@@ -722,7 +797,7 @@ function detailsFramework:OpenLoadConditionsPanel(optionsTable, callback, frameO
 					end
 				end
 
-				local affixTypesGroup = detailsFramework:CreateCheckboxGroup(loadConditionsFrame, affixes, nil, {width = 200, height = 200, title = "M+ Affixes", backdrop_color = {0, 0, 0, 0}}, {offset_x = 125})
+				local affixTypesGroup = detailsFramework:CreateCheckboxGroup(loadConditionsFrame, affixes, nil, {width = 200, height = 200, title = "M+ Affixes", backdrop_color = {0, 0, 0, 0}}, {offset_x = 230, amount_per_line = 2})
 				affixTypesGroup:SetPoint("topleft", loadConditionsFrame, "topleft", anchorPositions.affix [1], anchorPositions.affix [2])
 				affixTypesGroup.DBKey = "affix"
 				table.insert(loadConditionsFrame.AllRadioGroups, affixTypesGroup)

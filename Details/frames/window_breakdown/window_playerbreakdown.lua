@@ -9,7 +9,7 @@ local addonName, Details222 = ...
 --remove warnings in the code
 local ipairs = ipairs
 local tinsert = table.insert
-local tremove = tremove
+local tremove = table.remove
 local type = type
 local unpack = _G.unpack
 local PixelUtil = PixelUtil
@@ -32,7 +32,11 @@ function breakdownWindowFrame.RegisterPluginButton(newPluginButton, newPluginObj
 	newPluginButton.PluginAbsoluteName = newPluginAbsoluteName
 	newPluginButton.PluginFrame = newPluginObject.Frame
 
-	newPluginButton:SetTemplate(detailsFramework:GetTemplate("button", "DETAILS_PLUGINPANEL_BUTTON_TEMPLATE"))
+	newPluginButton:SetTemplate("STANDARD_GRAY")
+
+	--get the fontstring for this especific button
+	local fontString = _G[newPluginButton:GetName() .. "_Text"]
+	detailsFramework:SetFontDefault(fontString)
 
 	newPluginObject.__breakdownwindow = true
 
@@ -64,7 +68,12 @@ function breakdownWindowFrame.ShowPluginOnBreakdown(pluginObject, button)
 		if (actorObject) then
 			local instanceObject = Details:GetInstance(1)
 			if (instanceObject) then
-				Details:OpenBreakdownWindow(instanceObject, actorObject)
+				local bFromAttributeChange = false
+				local bIsRefresh = false
+				local bIsShiftKeyDown = false
+				local bIsControlKeyDown = false
+				local bIgnoreOverrides = true
+				Details:OpenBreakdownWindow(instanceObject, actorObject, bFromAttributeChange, bIsRefresh, bIsShiftKeyDown, bIsControlKeyDown, bIgnoreOverrides)
 			end
 		end
 	end
@@ -76,7 +85,7 @@ function breakdownWindowFrame.ShowPluginOnBreakdown(pluginObject, button)
 	--reset the template on all plugin buttons
 	for _, thisPluginButton in ipairs(breakdownWindowFrame.RegisteredPluginButtons) do
 		---@cast thisPluginButton df_button
-		thisPluginButton:SetTemplate(detailsFramework:GetTemplate("button", "DETAILS_PLUGINPANEL_BUTTON_TEMPLATE"))
+		thisPluginButton:SetTemplate(detailsFramework:GetTemplate("button", "STANDARD_GRAY")) --"DETAILS_PLUGINPANEL_BUTTON_TEMPLATE"
 	end
 
 	local pluginMainFrame = pluginObject.Frame
@@ -104,6 +113,9 @@ local PLAYER_DETAILS_WINDOW_WIDTH = 925
 local PLAYER_DETAILS_WINDOW_HEIGHT = 620
 local PLAYER_DETAILS_STATUSBAR_HEIGHT = 20
 local PLAYER_DETAILS_STATUSBAR_ALPHA = 1
+
+Details222.BreakdownWindow.width = PLAYER_DETAILS_WINDOW_WIDTH
+Details222.BreakdownWindow.height = PLAYER_DETAILS_WINDOW_HEIGHT
 
 ---@type button[]
 Details.player_details_tabs = {}
@@ -183,8 +195,30 @@ function Details222.BreakdownWindow.HidePluginFrame()
 	--reset the template on all plugin buttons
 	for _, thisPluginButton in ipairs(breakdownWindowFrame.RegisteredPluginButtons) do
 		---@cast thisPluginButton df_button
-		thisPluginButton:SetTemplate(detailsFramework:GetTemplate("button", "DETAILS_PLUGINPANEL_BUTTON_TEMPLATE"))
+		thisPluginButton:SetTemplate(detailsFramework:GetTemplate("button", "STANDARD_GRAY"))
 	end
+end
+
+
+function Details222.BreakdownWindow.ApplyFontSettings(fontString)
+	detailsFramework:SetFontSize(fontString, Details.breakdown_general.font_size)
+	detailsFramework:SetFontColor(fontString, Details.breakdown_general.font_color)
+	detailsFramework:SetFontOutline(fontString, Details.breakdown_general.font_outline)
+	detailsFramework:SetFontFace(fontString, Details.breakdown_general.font_face)
+end
+
+function Details222.BreakdownWindow.ApplyTextureSettings(statusBar)
+	local textureFile = SharedMedia:Fetch("statusbar", Details.breakdown_general.bar_texture)
+	local texture = statusBar:GetStatusBarTexture()
+	if (texture) then
+		texture:SetTexture(textureFile)
+	else
+		statusBar:SetStatusBarTexture(textureFile)
+	end
+end
+
+function breakdownWindowFrame:GetCombat()
+	return self.instancia:GetCombat()
 end
 
 ------------------------------------------------------------------------------------------------------------------------------
@@ -244,10 +278,79 @@ function Details222.BreakdownWindow.RefreshPlayerScroll()
 end
 
 Details.PlayerBreakdown.RoundedCornerPreset = {
-	roundness = 6,
-	color = {.1, .1, .1, 0.98},
-	border_color = {.05, .05, .05, 0.834},
+	roundness = 12,
+	color = {.1, .1, .1, 0.834},
 }
+
+Details222.RegisteredFramesToColor = {}
+
+function Details:RegisterFrameToColor(frame)
+	Details222.RegisteredFramesToColor[#Details222.RegisteredFramesToColor+1] = frame
+	local colorTable = Details.frame_background_color
+	frame:SetColor(unpack(colorTable))
+end
+
+function Details:RefreshWindowColor()
+	local colorTable = Details.frame_background_color
+	Details:SetWindowColor(unpack(colorTable))
+end
+
+function Details:SetWindowColor(r, g, b, a)
+	--SetColor implemented by rounded corners
+	breakdownWindowFrame:SetColor(r, g, b, a)
+	breakdownSideMenu:SetColor(r, g, b, a)
+
+	if (DetailsOptionsWindow) then
+		DetailsOptionsWindow:SetColor(r, g, b, a)
+		DetailsPluginContainerWindowMenuFrame:SetColor(r, g, b, a)
+	end
+
+	if (DetailsReportWindow) then
+		DetailsReportWindow:SetColor(r, g, b, a)
+	end
+
+	if (DetailsAllAttributesFrame) then
+		DetailsAllAttributesFrame:SetColor(r, g, b, a)
+	end
+
+	if (DetailsSpellBreakdownOptionsPanel) then
+		DetailsSpellBreakdownOptionsPanel:SetColor(r, g, b, a)
+	end
+
+	for idx, frame in ipairs(Details222.RegisteredFramesToColor) do
+		frame:SetColor(r, g, b, a)
+	end
+
+	local colorTable = Details.frame_background_color
+	colorTable[1] = r
+	colorTable[2] = g
+	colorTable[3] = b
+	colorTable[4] = a
+
+	local instanceTable = Details:GetAllInstances()
+	for _, instance in ipairs(instanceTable) do
+		if (instance:IsEnabled()) then
+			local baseFrame = instance.baseframe
+			local fullWindowFrame = baseFrame.fullWindowFrame
+			if (fullWindowFrame.__rcorners) then
+				if (fullWindowFrame.BottomHorizontalEdge:IsShown()) then
+					fullWindowFrame:SetColor(r, g, b, a)
+				end
+			end
+		end
+	end
+end
+
+---@param self details
+---@param combatObject combat
+---@param actorName string
+---@param mainAttribute number
+---@param subAttribute number
+function Details:OpenSpecificBreakdownWindow(combatObject, actorName, mainAttribute, subAttribute)
+	local newActor = combatObject:GetActor(mainAttribute, actorName)
+	local instance = Details:GetInstance(1)
+	Details:OpenBreakdownWindow(instance, newActor, false, false, false, false, false, mainAttribute, subAttribute)
+end
 
 ---open the breakdown window
 ---@param self details
@@ -257,28 +360,45 @@ Details.PlayerBreakdown.RoundedCornerPreset = {
 ---@param bIsRefresh boolean|nil
 ---@param bIsShiftKeyDown boolean|nil
 ---@param bIsControlKeyDown boolean|nil
-function Details:OpenBreakdownWindow(instanceObject, actorObject, bFromAttributeChange, bIsRefresh, bIsShiftKeyDown, bIsControlKeyDown)
+---@param bIgnoreOverrides boolean|nil
+---@param mainAttributeOverride number|nil
+---@param subAttributeOverride number|nil
+function Details:OpenBreakdownWindow(instanceObject, actorObject, bFromAttributeChange, bIsRefresh, bIsShiftKeyDown, bIsControlKeyDown, bIgnoreOverrides, mainAttributeOverride, subAttributeOverride)
 	---@type number, number
 	local mainAttribute, subAttribute = instanceObject:GetDisplay()
+
+	if (not bIgnoreOverrides) then
+		if (mainAttributeOverride) then
+			mainAttribute = mainAttributeOverride
+			actorObject = instanceObject:GetCombat():GetActor(mainAttributeOverride, actorObject.nome)
+		end
+		if (subAttributeOverride) then
+			subAttribute = subAttributeOverride
+		end
+	end
 
 	if (not breakdownWindowFrame.__rcorners) then
 		breakdownWindowFrame:SetBackdropColor(.1, .1, .1, 0)
 		breakdownWindowFrame:SetBackdropBorderColor(.1, .1, .1, 0)
-		breakdownWindowFrame.__background:Hide()
 		detailsFramework:AddRoundedCornersToFrame(breakdownWindowFrame, Details.PlayerBreakdown.RoundedCornerPreset)
+		detailsFramework:AddRoundedCornersToFrame(breakdownSideMenu, Details.PlayerBreakdown.RoundedCornerPreset)
 	end
 
-	if (not Details.row_singleclick_overwrite[mainAttribute] or not Details.row_singleclick_overwrite[mainAttribute][subAttribute]) then
-		Details:CloseBreakdownWindow()
-		return
+	Details:SetWindowColor(unpack(Details.frame_background_color))
 
-	elseif (type(Details.row_singleclick_overwrite[mainAttribute][subAttribute]) == "function") then
-		if (bFromAttributeChange) then
+	if (not bIgnoreOverrides) then
+		if (not Details.row_singleclick_overwrite[mainAttribute] or not Details.row_singleclick_overwrite[mainAttribute][subAttribute]) then
 			Details:CloseBreakdownWindow()
 			return
+
+		elseif (type(Details.row_singleclick_overwrite[mainAttribute][subAttribute]) == "function") then
+			if (bFromAttributeChange) then
+				Details:CloseBreakdownWindow()
+				return
+			end
+			Details.row_singleclick_overwrite[mainAttribute][subAttribute](_, actorObject, instanceObject, bIsShiftKeyDown, bIsControlKeyDown)
+			return
 		end
-		Details.row_singleclick_overwrite[mainAttribute][subAttribute](_, actorObject, instanceObject, bIsShiftKeyDown, bIsControlKeyDown)
-		return
 	end
 
 	if (instanceObject:GetMode() == DETAILS_MODE_RAID) then
@@ -653,9 +773,9 @@ function breakdownWindowFrame.SetClassIcon(actorObject, class)
 		breakdownWindowFrame.classIcon:SetTexture(actorObject.spellicon)
 		breakdownWindowFrame.classIcon:SetTexCoord(.1, .9, .1, .9)
 
-	elseif (actorObject.spec) then
+	elseif (actorObject.spec and _detalhes.class_specs_coords[actorObject.spec]) then
 		breakdownWindowFrame.classIcon:SetTexture([[Interface\AddOns\Details\images\spec_icons_normal_alpha]])
-		breakdownWindowFrame.classIcon:SetTexCoord(unpack(_detalhes.class_specs_coords [actorObject.spec]))
+		breakdownWindowFrame.classIcon:SetTexCoord(unpack(_detalhes.class_specs_coords[actorObject.spec]))
 	else
 		local coords = CLASS_ICON_TCOORDS[class]
 		if (coords) then
@@ -668,10 +788,6 @@ function breakdownWindowFrame.SetClassIcon(actorObject, class)
 			breakdownWindowFrame.classIcon:SetTexCoord(c[1], c[2], c[3], c[4])
 		end
 	end
-end
-
-function Details:SetBreakdownWindowBackgroundTexture(texture)
-	breakdownWindowFrame.backgroundTexture:SetTexture(texture)
 end
 
 --search key: ~create ~inicio ~start
@@ -709,13 +825,6 @@ function Details:CreateBreakdownWindow()
 		end
 	end
 
-	detailsFramework:ApplyStandardBackdrop(breakdownWindowFrame)
-
-	--background
-	breakdownWindowFrame.backgroundTexture = breakdownWindowFrame:CreateTexture("$parent", "background", nil, -3)
-	breakdownWindowFrame.backgroundTexture:SetAllPoints()
-	breakdownWindowFrame.backgroundTexture:Hide()
-
 	--host the textures and fontstring of the default frame of the player breakdown window
 	--what is the summary window: is the frame where all the widgets for the summary tab are created
 	breakdownWindowFrame.SummaryWindowWidgets = CreateFrame("frame", "DetailsBreakdownWindowSummaryWidgets", breakdownWindowFrame, "BackdropTemplate")
@@ -725,8 +834,12 @@ function Details:CreateBreakdownWindow()
 	breakdownWindowFrame.SummaryWindowWidgets:Hide()
 
 	local scaleBar = detailsFramework:CreateScaleBar(breakdownWindowFrame, Details.player_details_window)
-	scaleBar.label:AdjustPointsOffset(-6, 3)
+	scaleBar.label:AdjustPointsOffset(-3, 1)
+	scaleBar.label:SetTextColor{0.8902, 0.7294, 0.0157, 1}
+	scaleBar.label:SetIgnoreParentAlpha(true)
 	breakdownWindowFrame:SetScale(Details.player_details_window.scale)
+
+	--1, 0.8235, 0, 1 - text color of the label of the scale bar | plugins text color: 0.8902, 0.7294, 0.0157, 1 | 0.8902, 0.7294, 0.0157, 1
 
 	--class icon
 	breakdownWindowFrame.classIcon = breakdownWindowFrame:CreateTexture(nil, "overlay", nil, 1)
@@ -744,7 +857,7 @@ function Details:CreateBreakdownWindow()
 	--title
 	detailsFramework:NewLabel(breakdownWindowFrame, breakdownWindowFrame, nil, "titleText", Loc ["STRING_PLAYER_DETAILS"], "GameFontHighlightLeft", 12, {227/255, 186/255, 4/255})
 	breakdownWindowFrame.titleText:SetPoint("center", breakdownWindowFrame, "center")
-	breakdownWindowFrame.titleText:SetPoint("top", breakdownWindowFrame, "top", 0, -3)
+	breakdownWindowFrame.titleText:SetPoint("top", breakdownWindowFrame, "top", 0, -5)
 
 	--create the texts shown on the window
 	do
@@ -787,22 +900,30 @@ function Details:CreateBreakdownWindow()
 	local gradientStartColor = Details222.ColorScheme.GetColorFor("gradient-background")
 	local gradientUp = detailsFramework:CreateTexture(breakdownWindowFrame, {gradient = "vertical", fromColor = gradientStartColor, toColor = {0, 0, 0, 0.2}}, 1, 68, "artwork", {0, 1, 0, 1})
 	gradientUp:SetPoint("tops", 1, 18)
-	--gradientUp:Hide()
+	breakdownWindowFrame.gradientUp = gradientUp
 
 	local gradientHeight = 481
 	local gradientDown = detailsFramework:CreateTexture(breakdownWindowFrame, {gradient = "vertical", fromColor = "transparent", toColor = {0, 0, 0, 0.7}}, 1, gradientHeight, "border", {0, 1, 0, 1})
 	gradientDown:SetPoint("bottomleft", breakdownWindowFrame.statusBar, "topleft", 1, 1)
 	gradientDown:SetPoint("bottomright", breakdownWindowFrame.statusBar, "topright", -1, 1)
+	breakdownWindowFrame.gradientDown = gradientDown
+
+	--visual debugging
+	gradientUp:Hide()
+	gradientDown:Hide()
 
 	function breakdownWindowFrame:SetStatusbarText(text, fontSize, fontColor)
 		if (not text) then
-			breakdownWindowFrame:SetStatusbarText("Details! Damage Meter | Use '/details stats' for statistics", 10, "gray")
+			breakdownWindowFrame:SetStatusbarText("An AddOn by Terciob | Part of Details! Damage Meter | Click 'Options' button for settings.", 10, "gray")
 			return
 		end
 		statusBar.Text.text = text
 		statusBar.Text.fontsize = fontSize
 		statusBar.Text.fontcolor = fontColor
 	end
+
+	local rightClickToCloseLabel = Details:CreateRightClickToCloseLabel(statusBar)
+	rightClickToCloseLabel:SetPoint("right", -283, 3)
 
 	--set default text
 	breakdownWindowFrame:SetStatusbarText()
@@ -921,10 +1042,11 @@ function Details:CreatePlayerDetailsTab(tabName, locName, conditionFunc, fillFun
 	tabFrame:SetPoint("bottomright", breakdownWindowFrame, "bottomright", -1, 20)
 	tabFrame:Hide()
 
-	DetailsFramework:ApplyStandardBackdrop(tabFrame)
-	tabFrame:SetBackdropBorderColor(0, 0, 0, 0.3)
-	tabFrame.__background:SetAlpha(0.3)
-	tabFrame.RightEdge:Hide()
+	--DetailsFramework:ApplyStandardBackdrop(tabFrame)
+	--tabFrame:SetBackdropColor(0, 0, 0, 0)
+	--tabFrame:SetBackdropBorderColor(0, 0, 0, 0)
+	--tabFrame.__background:SetAlpha(0)
+	--tabFrame.RightEdge:Hide()
 
 	--create the gradients in the top and bottom side of the breakdown window
 	local gradientStartColor = Details222.ColorScheme.GetColorFor("gradient-background")

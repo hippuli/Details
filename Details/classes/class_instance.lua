@@ -2,6 +2,9 @@ local AceLocale = LibStub("AceLocale-3.0")
 local Loc = AceLocale:GetLocale ( "Details" )
 local SharedMedia = LibStub:GetLibrary("LibSharedMedia-3.0")
 
+---@type detailsframework
+local detailsFramework = _G.DetailsFramework
+
 local type= type  --lua local
 local ipairs = ipairs --lua local
 local pairs = pairs --lua local
@@ -22,6 +25,7 @@ local combatClass = Details.combate
 local Details = 		_G.Details
 local _
 local addonName, Details222 = ...
+---@cast Details222 details222
 local gump = 			Details.gump
 
 local modo_raid = Details._detalhes_props["MODO_RAID"]
@@ -595,7 +599,110 @@ local instanceMixins = {
 		instance:ResetWindow()
 		instance:RefreshWindow(true)
 	end,
+
+	---open a window with the keys and values of the actor object being shown in the line index
+	---this function doesn't not return the values, it will 'dump' the values in a new window by calling 'dumpt'
+	---@param self instance
+	---@param index number
+	GetActorInfoFromLineIndex = function(self, index)
+		local actor = self.barras[index] and self.barras[index].minha_tabela
+		if (actor) then
+			Details:DumpActorInfo(actor)
+		else
+			Details:Msg("no actor found in line index", index)
+		end
+	end,
+
+	CheckForSecretsAndAspects = function(self)
+		Details:ClearSecretFontStrings(self)
+
+		local lines = self.barras
+		local needRefreshRows = false
+		for i = 1, #lines do
+			local line = lines[i]
+			if line.lineText1:HasAnySecretAspect() or line.lineText1:HasSecretValues() then
+				needRefreshRows = true
+			end
+
+			if line.lineText2:HasAnySecretAspect() or line.lineText2:HasSecretValues() then
+				needRefreshRows = true
+			end
+
+			if line.lineText3:HasAnySecretAspect() or line.lineText3:HasSecretValues() then
+				needRefreshRows = true
+			end
+
+			if line.lineText4:HasAnySecretAspect() or line.lineText4:HasSecretValues() then
+				needRefreshRows = true
+			end
+
+			if (needRefreshRows) then
+				line.lineText1:SetToDefaults()
+				line.lineText2:SetToDefaults()
+				line.lineText3:SetToDefaults()
+				line.lineText4:SetToDefaults()
+			end
+		end
+
+		if (needRefreshRows) then
+			self:InstanceRefreshRows()
+		end
+	end
 }
+
+function Details:ClearSecretFontStrings(instance)
+	local bars = instance.barras
+	for i = 1, #bars do
+		local thisLine = bars[i]
+		if thisLine.lineText11 then
+			thisLine.lineText11:SetText("")
+			thisLine.lineText12:SetText("")
+			thisLine.lineText13:SetText("")
+			thisLine.lineText14:SetText("")
+		end
+	end
+end
+
+function Details:DumpActorInfo(actor)
+	local tableToDump = Details:GenerateActorInfo(actor)
+	dumpt(tableToDump)
+end
+
+local tablesToIgnore = {
+	["pets"] = "type = table",
+	["friendlyfire"] = "type = table",
+	["damage_from"] = "type = table",
+	["targets"] = "type = table",
+	["raid_targets"] = "type = table",
+	["minha_barra"] = "type = table",
+	["__index"] = "type = table",
+	["spells"] = "type = table",
+}
+
+function Details:GenerateActorInfo(actor, errorText, bIncludeStack)
+	local tableToDump = {}
+	for k, v in pairs(actor) do
+		if (not tablesToIgnore[k]) then
+			if (type(k) == "string") then
+				if (type(v) == "number" or type(v) == "string"or type(v) == "boolean") then
+					tableToDump[k] = v
+				elseif (type(v) == "table") then
+					tableToDump[k] = "table{}"
+				end
+			end
+		end
+	end
+
+	if (errorText) then
+		tableToDump["__ERRORTEXT"] = errorText
+	end
+
+	if (bIncludeStack) then
+		tableToDump["__STACKCALL"] = debugstack(2)
+	end
+
+	return tableToDump
+end
 
 ---get the table with all instances, these instance could be not initialized yet, some might be open, some not in use
 ---@return instance[]
@@ -698,6 +805,22 @@ function Details:GetDisplay()
 	return self.atributo, self.sub_atributo
 end
 
+function Details:IsShowing(segmentId, displayId, subDisplayId)
+	if (segmentId and segmentId ~= self.segmento) then
+		return false
+	end
+
+	if (displayId and displayId ~= self.atributo) then
+		return false
+	end
+
+	if (subDisplayId and subDisplayId ~= self.sub_atributo) then
+		return false
+	end
+
+	return true
+end
+
 function Details:GetMaxInstancesAmount()
 	return Details.instances_amount
 end
@@ -748,24 +871,48 @@ function Details:GetNumLinesShown() --alis of _detalhes:GetNumRows()
 	return self.rows_fit_in_window
 end
 
---@attributeId: DETAILS_ATTRIBUTE_DAMAGE, DETAILS_ATTRIBUTE_HEAL
-function Details:GetTop5Actors(attributeId)
+---comment
+---@param displayId number
+---@return actor
+---@return actor
+---@return actor
+---@return actor
+---@return actor
+function Details:GetTop5Actors(displayId)
 	local combatObject = self.showing
-	if (combatObject) then
-		local container = combatObject:GetContainer(attributeId)
-		if (container) then
-            local actorTable = container._ActorTable
-			return actorTable[1], actorTable[2], actorTable[3], actorTable[4], actorTable[5]
-		end
-	end
+	local container = combatObject:GetContainer(displayId)
+	local actorTable = container._ActorTable
+	return actorTable[1], actorTable[2], actorTable[3], actorTable[4], actorTable[5]
+end
+
+---get the combat object which the instance is showing, get the display and subDisplay, then refresh the window in report mode and get the rankIndex actor
+---@param self instance
+---@param displayId attributeid
+---@param subDisplayId attributeid
+---@param rankIndex number
+---@return actor
+function Details:GetActorBySubDisplayAndRank(displayId, subDisplayId, rankIndex)
+	local classObject = Details:GetDisplayClassByDisplayId(displayId)
+	local combatObject = self:GetCombat()
+	local bIsForceRefresh = false
+	local bIsExport = true
+	local totalDone, subDisplayName, firstPlaceTotal, actorAmount = classObject:RefreshWindow(self, combatObject, bIsForceRefresh, bIsExport)
+
+	local actorContainer = combatObject:GetContainer(displayId)
+	local actorTable = actorContainer:GetActorTable()
+
+	return actorTable[rankIndex]
 end
 
 --@attributeId: DETAILS_ATTRIBUTE_DAMAGE, DETAILS_ATTRIBUTE_HEAL
 --@rankIndex: the rank id of the actor shown in the window
-function Details:GetActorByRank(attributeId, rankIndex)
-	local combatObject = self.showing
+---@param self instance
+---@param displayId attributeid
+---@param rankIndex number
+function Details:GetActorByRank(displayId, rankIndex)
+	local combatObject = self:GetCombat()
 	if (combatObject) then
-		local container = combatObject:GetContainer(attributeId)
+		local container = combatObject:GetContainer(displayId)
 		if (container) then
 			return container._ActorTable[rankIndex]
 		end
@@ -1017,6 +1164,13 @@ end
 		end
 	end
 
+	---reopen all closed windows that does not have the option "Ignore Mass Toogle" enabled
+	---@param ... unknown
+	---@return nil
+	function Details:ReopenAllWindows(...)
+		return Details:ReabrirTodasInstancias(...)
+	end
+
 	-- reabre todas as instancias
 	function Details:ReabrirTodasInstancias (temp)
 		for index = math.min (#Details.tabela_instancias, Details.instances_amount), 1, -1 do
@@ -1155,6 +1309,9 @@ end
 			self:SoloMode (true)
 		end
 
+		if detailsFramework.IsAddonApocalypseWow() then
+			Details222.BParser.UpdateDamageMeterSwap()
+		end
 	end
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -1376,13 +1533,16 @@ function Details:BaseFrameSnap()
 	end
 
 	local my_baseframe = self.baseframe
+
+    self:RestoreMainWindowPositionNoResize()
+
 	for lado, snap_to in pairs(self.snap) do
 		local instancia_alvo = Details.tabela_instancias [snap_to]
 
 		if (instancia_alvo) then
 			if (instancia_alvo.ativa and instancia_alvo.baseframe) then
 				if (lado == 1) then --a esquerda
-					instancia_alvo.baseframe:SetPoint("TOPRIGHT", my_baseframe, "TOPLEFT")
+					instancia_alvo.baseframe:SetPoint("TOPRIGHT", my_baseframe, "TOPLEFT", -Details.grouping_horizontal_gap, 0)
 
 				elseif (lado == 2) then --em baixo
 					local statusbar_y_mod = 0
@@ -1392,7 +1552,7 @@ function Details:BaseFrameSnap()
 					instancia_alvo.baseframe:SetPoint("TOPLEFT", my_baseframe, "BOTTOMLEFT", 0, -34 + statusbar_y_mod)
 
 				elseif (lado == 3) then --a direita
-					instancia_alvo.baseframe:SetPoint("BOTTOMLEFT", my_baseframe, "BOTTOMRIGHT")
+					instancia_alvo.baseframe:SetPoint("TOPLEFT", my_baseframe, "TOPRIGHT", Details.grouping_horizontal_gap, 0)
 
 				elseif (lado == 4) then --em cima
 					local statusbar_y_mod = 0
@@ -1435,7 +1595,7 @@ function Details:BaseFrameSnap()
 					if (instancia_alvo.ativa and instancia_alvo.baseframe) then
 
 						if (lado_reverso == 1) then --a esquerda
-							instancia_alvo.baseframe:SetPoint("BOTTOMLEFT", instancia.baseframe, "BOTTOMRIGHT")
+							instancia_alvo.baseframe:SetPoint("BOTTOMLEFT", instancia.baseframe, "BOTTOMRIGHT", Details.grouping_horizontal_gap, 0)
 
 						elseif (lado_reverso == 2) then --em baixo
 
@@ -1447,7 +1607,7 @@ function Details:BaseFrameSnap()
 							instancia_alvo.baseframe:SetPoint("BOTTOMLEFT", instancia.baseframe, "TOPLEFT", 0, 34 + statusbar_y_mod) -- + (statusbar_y_mod*-1)
 
 						elseif (lado_reverso == 3) then --a direita
-							instancia_alvo.baseframe:SetPoint("TOPRIGHT", instancia.baseframe, "TOPLEFT")
+							instancia_alvo.baseframe:SetPoint("TOPRIGHT", instancia.baseframe, "TOPLEFT", -Details.grouping_horizontal_gap, 0)
 
 						elseif (lado_reverso == 4) then --em cima
 
@@ -1474,7 +1634,7 @@ function Details:BaseFrameSnap()
 
 					if (instancia_alvo.ativa and instancia_alvo.baseframe) then
 						if (lado == 1) then --a esquerda
-							instancia_alvo.baseframe:SetPoint("TOPRIGHT", instancia.baseframe, "TOPLEFT")
+							instancia_alvo.baseframe:SetPoint("TOPRIGHT", instancia.baseframe, "TOPLEFT", -Details.grouping_horizontal_gap, 0)
 
 						elseif (lado == 2) then --em baixo
 							local statusbar_y_mod = 0
@@ -1484,7 +1644,7 @@ function Details:BaseFrameSnap()
 							instancia_alvo.baseframe:SetPoint("TOPLEFT", instancia.baseframe, "BOTTOMLEFT", 0, -34 + statusbar_y_mod)
 
 						elseif (lado == 3) then --a direita
-							instancia_alvo.baseframe:SetPoint("BOTTOMLEFT", instancia.baseframe, "BOTTOMRIGHT")
+							instancia_alvo.baseframe:SetPoint("BOTTOMLEFT", instancia.baseframe, "BOTTOMRIGHT", Details.grouping_horizontal_gap, 0)
 
 						elseif (lado == 4) then --em cima
 
@@ -1516,9 +1676,9 @@ function Details:agrupar_janelas(lados)
 
 			if (lado == 3) then --direita
 				--mover frame
-				instancia.baseframe:SetPoint("TOPRIGHT", esta_instancia.baseframe, "TOPLEFT")
-				instancia.baseframe:SetPoint("RIGHT", esta_instancia.baseframe, "LEFT")
-				instancia.baseframe:SetPoint("BOTTOMRIGHT", esta_instancia.baseframe, "BOTTOMLEFT")
+				instancia.baseframe:SetPoint("TOPRIGHT", esta_instancia.baseframe, "TOPLEFT", -Details.grouping_horizontal_gap, 0)
+				instancia.baseframe:SetPoint("RIGHT", esta_instancia.baseframe, "LEFT", -Details.grouping_horizontal_gap, 0)
+				instancia.baseframe:SetPoint("BOTTOMRIGHT", esta_instancia.baseframe, "BOTTOMLEFT", -Details.grouping_horizontal_gap, 0)
 
 				local _, height = esta_instancia:GetSize()
 				instancia:SetSize(nil, height)
@@ -1549,9 +1709,9 @@ function Details:agrupar_janelas(lados)
 			elseif (lado == 1) then --esquerda
 				--mover frame
 
-				instancia.baseframe:SetPoint("TOPLEFT", esta_instancia.baseframe, "TOPRIGHT")
-				instancia.baseframe:SetPoint("LEFT", esta_instancia.baseframe, "RIGHT")
-				instancia.baseframe:SetPoint("BOTTOMLEFT", esta_instancia.baseframe, "BOTTOMRIGHT")
+				instancia.baseframe:SetPoint("TOPLEFT", esta_instancia.baseframe, "TOPRIGHT", Details.grouping_horizontal_gap, 0)
+				instancia.baseframe:SetPoint("LEFT", esta_instancia.baseframe, "RIGHT", Details.grouping_horizontal_gap, 0)
+				instancia.baseframe:SetPoint("BOTTOMLEFT", esta_instancia.baseframe, "BOTTOMRIGHT", Details.grouping_horizontal_gap, 0)
 
 				local _, height = esta_instancia:GetSize()
 				instancia:SetSize(nil, height)
@@ -2563,7 +2723,7 @@ function Details:AtualizaSegmentos_AfterCombat(instancia)
 		instancia.v_barras = true
 		instancia:ResetaGump()
 		instancia:RefreshMainWindow(true)
-		Details:AtualizarJanela (instancia)
+		Details:UpdateWindow (instancia)
 
 	elseif (segmento < Details.segments_amount and segmento > 0) then
 		instancia.showing = segmentsTable[segmento]
@@ -2574,7 +2734,7 @@ function Details:AtualizaSegmentos_AfterCombat(instancia)
 		instancia.v_barras = true
 		instancia:ResetaGump()
 		instancia:RefreshMainWindow(true)
-		Details:AtualizarJanela (instancia)
+		Details:UpdateWindow (instancia)
 	end
 end
 
@@ -3011,6 +3171,8 @@ local menu_icones = {
 	"Interface\\AddOns\\Details\\images\\atributos_icones_misc"
 }
 
+Details.menuIcons = menu_icones
+
 function Details:MontaAtributosOption (instancia, func)
 	func = func or instancia.TrocaTabela
 
@@ -3057,17 +3219,36 @@ function Details:MontaAtributosOption (instancia, func)
 			instancia.sub_atributo_last = {1, 1, 1, 1, 1}
 		end
 
-		for o = 1, atributos [i] do
-			if (Details:CaptureIsEnabled ( Details.atributos_capture [gindex] )) then
-				CoolTip:AddMenu (2, func, true, i, o, options[o], nil, true)
-				CoolTip:AddIcon (menu_icones[i], 2, 1, 20, 20, p*(o-1), p*(o), 0, 1)
-			else
-				CoolTip:AddLine(options[o], nil, 2, .5, .5, .5, 1)
-				CoolTip:AddMenu (2, func, true, i, o)
-				CoolTip:AddIcon (menu_icones[i], 2, 1, 20, 20, p*(o-1), p*(o), 0, 1, {.3, .3, .3, 1})
-			end
+		if detailsFramework.IsAddonApocalypseWow() then
+			local doNothingFunction = function()end
+			for o = 1, atributos [i] do
+				local mainDisplay, subDisplay = i, o
+				local damageMeterType = Details222.BParser.GetDamageMeterTypeFromDisplay(mainDisplay, subDisplay)
 
-			gindex = gindex + 1
+				if (Details:CaptureIsEnabled ( Details.atributos_capture [gindex] ) and damageMeterType < 100) then
+					CoolTip:AddMenu (2, func, true, i, o, options[o], nil, true)
+					CoolTip:AddIcon (menu_icones[i], 2, 1, 20, 20, p*(o-1), p*(o), 0, 1)
+				else
+					CoolTip:AddLine(options[o], nil, 2, .5, .5, .5, 1)
+					CoolTip:AddMenu (2, doNothingFunction, true, i, o)
+					CoolTip:AddIcon (menu_icones[i], 2, 1, 20, 20, p*(o-1), p*(o), 0, 1, {.3, .3, .3, 1})
+				end
+
+				gindex = gindex + 1
+			end
+		else
+			for o = 1, atributos [i] do
+				if (Details:CaptureIsEnabled ( Details.atributos_capture [gindex] )) then
+					CoolTip:AddMenu (2, func, true, i, o, options[o], nil, true)
+					CoolTip:AddIcon (menu_icones[i], 2, 1, 20, 20, p*(o-1), p*(o), 0, 1)
+				else
+					CoolTip:AddLine(options[o], nil, 2, .5, .5, .5, 1)
+					CoolTip:AddMenu (2, func, true, i, o)
+					CoolTip:AddIcon (menu_icones[i], 2, 1, 20, 20, p*(o-1), p*(o), 0, 1, {.3, .3, .3, 1})
+				end
+
+				gindex = gindex + 1
+			end
 		end
 
 		CoolTip:SetLastSelected (2, i, instancia.sub_atributo_last [i])
@@ -3156,6 +3337,19 @@ function Details:ChangeIcon(icon)
 		skin = Details.skins [Details.default_skin_to_use]
 	end
 
+	local titleBarIconSize
+
+	local iconSizeFromInstance = self.attribute_icon_size
+	if (iconSizeFromInstance and iconSizeFromInstance ~= 0) then
+		titleBarIconSize = iconSizeFromInstance
+
+	elseif (skin.attribute_icon_size) then
+		titleBarIconSize = skin.attribute_icon_size
+
+	else
+		titleBarIconSize = 16
+	end
+
 	if (not self.hide_icon) then
 		if (skin.icon_on_top) then
 			self.baseframe.cabecalho.atributo_icon:SetParent(self.floatingframe)
@@ -3170,8 +3364,7 @@ function Details:ChangeIcon(icon)
 		self.baseframe.cabecalho.atributo_icon:SetTexCoord(5/64, 60/64, 3/64, 62/64)
 
 		local icon_size = skin.icon_plugins_size
-		self.baseframe.cabecalho.atributo_icon:SetWidth(icon_size[1])
-		self.baseframe.cabecalho.atributo_icon:SetHeight(icon_size[2])
+		self.baseframe.cabecalho.atributo_icon:SetSize(titleBarIconSize, titleBarIconSize)
 		local icon_anchor = skin.icon_anchor_plugins
 
 		self.baseframe.cabecalho.atributo_icon:ClearAllPoints()
@@ -3190,8 +3383,7 @@ function Details:ChangeIcon(icon)
 				self.baseframe.cabecalho.atributo_icon:SetTexCoord(5/64, 60/64, 3/64, 62/64)
 
 				local icon_size = skin.icon_plugins_size
-				self.baseframe.cabecalho.atributo_icon:SetWidth(icon_size[1])
-				self.baseframe.cabecalho.atributo_icon:SetHeight(icon_size[2])
+				self.baseframe.cabecalho.atributo_icon:SetSize(titleBarIconSize, titleBarIconSize)
 				local icon_anchor = skin.icon_anchor_plugins
 
 				self.baseframe.cabecalho.atributo_icon:ClearAllPoints()
@@ -3209,7 +3401,7 @@ function Details:ChangeIcon(icon)
 
 			local p = 0.125 --32/256
 			self.baseframe.cabecalho.atributo_icon:SetTexCoord(p * (self.sub_atributo-1), p * (self.sub_atributo), 0, 1)
-			self.baseframe.cabecalho.atributo_icon:SetSize(16, 16)
+			self.baseframe.cabecalho.atributo_icon:SetSize(titleBarIconSize, titleBarIconSize)
 
 			self.baseframe.cabecalho.atributo_icon:ClearAllPoints()
 			if (self.menu_attribute_string) then
@@ -3221,13 +3413,8 @@ function Details:ChangeIcon(icon)
 				self.baseframe.cabecalho.atributo_icon:ClearAllPoints()
 				self.baseframe.cabecalho.atributo_icon:SetPoint("topleft", self.baseframe.cabecalho.ball_point, "topleft", skin.attribute_icon_anchor[1], skin.attribute_icon_anchor[2])
 			end
-
-			if (skin.attribute_icon_size) then
-				self.baseframe.cabecalho.atributo_icon:SetSize(unpack(skin.attribute_icon_size))
-			end
-
-
 		end
+
 	elseif (self.modo == modo_raid) then --raid
 		--icon is set by the plugin
 	end
@@ -3409,7 +3596,7 @@ function Details:monta_relatorio (este_relatorio, custom)
 		--shrink
 		local report_lines = {}
 		for i = 1, Details.report_lines+1, 1 do  --#este_relatorio -- o +1 � pq ele conta o cabe�alho como uma linha
-			report_lines [#report_lines+1] = este_relatorio[i]
+			report_lines [#report_lines+1] = este_relatorio[i] --este_relatorio is a nil value | bug report tells custom is true
 		end
 
 		return self:envia_relatorio (report_lines, true)
@@ -3445,7 +3632,7 @@ function Details:monta_relatorio (este_relatorio, custom)
 
 		if (already_exists) then
 			--push it to  front
-			local t = tremove(Details.latest_report_table, already_exists)
+			local t = table.remove(Details.latest_report_table, already_exists)
 			t [4] = amt
 			table.insert(Details.latest_report_table, 1, t)
 		else
@@ -3457,7 +3644,7 @@ function Details:monta_relatorio (este_relatorio, custom)
 			end
 		end
 
-		tremove(Details.latest_report_table, 11)
+		table.remove(Details.latest_report_table, 11)
 	end
 
 	local barras = self.barras
@@ -3600,7 +3787,7 @@ function Details:monta_relatorio (este_relatorio, custom)
 			Details:FormatReportLines (report_lines, t, report_name_function, report_amount_function, report_build_line)
 		else
 			for i = #raw_data_to_report, amt+1, -1 do
-				tremove(raw_data_to_report, i)
+				table.remove(raw_data_to_report, i)
 			end
 			Details:FormatReportLines (report_lines, raw_data_to_report, report_name_function, report_amount_function, report_build_line)
 		end
@@ -3796,15 +3983,20 @@ function Details:envia_relatorio (linhas, custom)
 	if (combatObject) then
 		local combatTime = combatObject:GetCombatTime()
 		segmentTime = Details.gump:IntegerToTimer(combatTime or 0)
+	else
+		combatObject = self:GetCombat()
+		local combatTime = combatObject:GetCombatTime()
+		segmentTime = Details.gump:IntegerToTimer(combatTime or 0)
 	end
 
 	--effective ou active time
-	if (Details.time_type == 2 or Details.use_realtimedps) then
-		linhas[1] = linhas[1] .. " [" .. segmentTime .. " EF]"
-	else
-		linhas[1] = linhas[1] .. " [" .. segmentTime .. " AC]"
+	if (not custom) then
+		if (Details.time_type == 2 or Details.use_realtimedps) then
+			linhas[1] = linhas[1] .. " [" .. segmentTime .. " EF]"
+		else
+			linhas[1] = linhas[1] .. " [" .. segmentTime .. " AC]"
+		end
 	end
-
 
 	local editbox = Details.janela_report.editbox
 	if (editbox.focus) then --n�o precionou enter antes de clicar no okey

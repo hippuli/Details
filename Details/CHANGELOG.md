@@ -1,7 +1,9 @@
 # Details! Damage Meter
 
-## [Details.20231120.12044.155](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20231120.12044.155) (2023-11-20)
-[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20231114.12043.155...Details.20231120.12044.155) 
+## [Details.20260126.14350.167](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20260126.14350.167) (2026-01-26)
+[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20260123.14324.166...Details.20260126.14350.167) 
 
-- Fix for the CheckInteractDistance() error  
-- Calling CheckInteractDistance() only outside combat  
+- Fix arena matches for Midnight  
+- Disabling and fixing stuff  
+- Fix most of the line appearance issues  
+- Fix lock button being unclickable.  
