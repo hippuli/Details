@@ -1,9 +1,9 @@
 # Details! Damage Meter
 
-## [Details.20260226.14655.170](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20260226.14655.170) (2026-02-26)
-[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20260223.14634.170...Details.20260226.14655.170) 
+## [Details.20260228.14696.170](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20260228.14696.170) (2026-02-28)
+[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20260227.14660.170...Details.20260228.14696.170) 
 
-- Version UP  
-- More fixes  
-- Bug fixes  
-- fix  
+- Version Up!  
+- Fix tooltip width for midnight when the anchor is set to a fixed point in the screen  
+- Options for tooltips. Use: /details tooltip  
+- Fix enemy damage taken tooltip  
