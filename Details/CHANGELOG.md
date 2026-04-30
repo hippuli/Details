@@ -1,9 +1,10 @@
 # Details! Damage Meter
 
-## [Details.20260427.15014.171](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20260427.15014.171) (2026-04-27)
-[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20260424.15009.171...Details.20260427.15014.171) 
+## [Details.20260430.15038.171](https://github.com/Tercioo/Details-Damage-Meter/tree/Details.20260430.15038.171) (2026-04-30)
+[Full Changelog](https://github.com/Tercioo/Details-Damage-Meter/compare/Details.20260428.15031.171...Details.20260430.15038.171) 
 
-- Version Up  
-- Framework update to fix the anchor system and add anchorsystem:SetGrowDirection()  
-- Plz stop bugs blizzard  
-- Fix an error after completing a mythic+ dungeon.  
+- Use C\_EncodingUtil for profiles; Fix report showing only percent; Fix test bars  
+- Use C\_EncodingUtil when exporting profiles.  
+- Smaller profile string  
+- Fixed an issue in the options panel text formatting  
+- Fix report and test bars  

@@ -641,8 +641,8 @@ local instanceMixins = {
 		return Details222.BParser.GetAttributeTypeFromDisplay(mainDisplay, subDisplay)
 	end,
 
-	GetSources = function(instance)
-		local thisSegment = instance:GetSegmentObject()
+	GetSources = function(instance, attributeId)
+		local thisSegment = instance:GetSegmentObject(attributeId)
 		if (thisSegment) then
 			return thisSegment.combatSources
 		end
@@ -674,6 +674,17 @@ local instanceMixins = {
 					end
 				else
 					foundSecret = true
+				end
+			end
+
+			if foundSecret then
+				sources = instance:GetSources(0)
+				for i = 1, #sources do
+					if not issecretvalue(sources[i].name) then
+						if sources[i].name == actorName then
+							return sources[i]
+						end
+					end
 				end
 			end
 		--end
@@ -969,14 +980,22 @@ if detailsFramework.IsAddonApocalypseWow() then
 		for _, instance in ipairs(Details:GetAllInstances()) do
 			if instance:IsEnabled() then
 				if instance:GetApocalypseSourceType() == Details222.Apocalypse.TypeDetails then
+					--caches will be tagged as dirty and require a cleanup later
 					instance:SetSegmentType(1, true)
-					print("swapping")
+					print("Details! (debug) auto swapping.")
 				end
 			end
 		end
 	end)
 	serverCombatListener:RegisterEvent("SERVER_COMBAT_ENDED", function(eventName, combatObject)
-		--do nothing
+		--force a refresh in all window to clean the dirty caches if the window data is from the game
+		for _, instance in ipairs(Details:GetAllInstances()) do
+			if instance:IsEnabled() then
+				if instance:GetApocalypseSourceType() == Details222.Apocalypse.TypeGame then
+					instance:RefreshWindow(true)
+				end
+			end
+		end
 	end)
 end
 
@@ -1065,8 +1084,8 @@ function Details:GetSegment()
 	return self.segmento
 end
 
-function Details:GetSegmentObject()
-	local attributeId = self:GetAttributeType()
+function Details:GetSegmentObject(attributeId)
+	attributeId = attributeId or self:GetAttributeType()
 	if attributeId == 100 then
 		attributeId = 0
 	end
@@ -4054,7 +4073,11 @@ function Details:SendApocalypseReport()
 				len = Details.fontstring_len:GetStringWidth()
 			end
 
-			reportLine.result = index .. ". " .. name .. " " .. percent
+			if total > 10000 then
+				total = formatFunc(_, total)
+			end
+
+			reportLine.result = index .. ". " .. name .. " " .. total .. " " .. percent
 		end
 
 		local toWho = Details.report_where

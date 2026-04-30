@@ -2148,6 +2148,10 @@ local lastEventTime = 0
 function Details222.BParser.UpdateAppocalypse(instance, bForceUpdate)
 	---@cast instance instance
 
+	if Details:IsTestBarOngoing() then
+		return
+	end
+
 	--check if the window is showing a pluging, if yes do not update
 	local mode = instance:GetMode()
 	if mode == DETAILS_MODE_RAID then
@@ -3299,7 +3303,7 @@ end
 ---@param instance instance
 ---@param topValue number
 ---@param rank number
-function Details:UpdateBarApocalypseWow(instanceLine, source, instance, topValue, rank)
+function Details:UpdateBarApocalypseWow(instanceLine, source, instance, topValue, rank) --~refresh
 	local percenNumber = 0
 	local mainDisplay, subDisplay = instance:GetDisplay()
 	instanceLine.statusbar:SetMinMaxValues(0, 100)
@@ -3348,7 +3352,21 @@ function Details:UpdateBarApocalypseWow(instanceLine, source, instance, topValue
 		--actorName = UnitName(actorName)
 	end
 
+	local canShowPercent = false
+
 	if not issecretvalue(actorName) then
+		if Details.righttext_simple_formatting.use_alignment then
+			if (instance.row_info.show_percent) then
+				canShowPercent = true
+			end
+		else
+			canShowPercent = true
+		end
+
+		if source.amountPerSecond < 1 then
+			source.amountPerSecond = 1
+		end
+
 		if actorName then
 			actorName = detailsFramework:RemoveRealmName(actorName)
 		else
@@ -3428,34 +3446,65 @@ function Details:UpdateBarApocalypseWow(instanceLine, source, instance, topValue
 
 	if mainDisplay == DETAILS_ATTRIBUTE_DAMAGE then
 		if (subDisplay == DETAILS_SUBATTRIBUTE_DAMAGEDONE or subDisplay == DETAILS_SUBATTRIBUTE_DAMAGETAKEN) then
-			local ruleToUse = 2 --total dps
-			Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
+			if canShowPercent then
+				local ruleToUse = 3 --total dps percent
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), format("%.0f%%", source.totalAmount / topValue * 100), ruleToUse)
+			else
+				local ruleToUse = 2 --total dps
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
+			end
 			--percentNumber = math.floor((damageTotal/instanceObject.top) * 100)
 
 		elseif (subDisplay == DETAILS_SUBATTRIBUTE_DPS) then
-			local ruleToUse = -1 --only show total
-			Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.amountPerSecond), nil, nil, ruleToUse)
-			--percentNumber = math.floor((dps/instanceObject.top) * 100)
+			if canShowPercent then
+				local ruleToUse = 1 --total and percent
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.amountPerSecond), nil, format("%.0f%%", source.totalAmount / topValue * 100), ruleToUse)
+			else
+				local ruleToUse = -1 --only show total
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.amountPerSecond), nil, nil, ruleToUse)
+				--percentNumber = math.floor((dps/instanceObject.top) * 100)
+			end
 
 		elseif (subDisplay == DETAILS_SUBATTRIBUTE_ENEMIES) then
-			local ruleToUse = 2
-			Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, nil, ruleToUse)
-			--percentNumber = math.floor((dps/instanceObject.top) * 100)
+			if canShowPercent then
+				local ruleToUse = 3 --total dps percent
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), format("%.0f%%", source.totalAmount / topValue * 100), ruleToUse)
+			else
+				local ruleToUse = 2
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
+				--percentNumber = math.floor((dps/instanceObject.top) * 100)
+			end
 
 		elseif (subDisplay == DETAILS_SUBATTRIBUTE_AVOIDABLE) then
-			local ruleToUse = 2 --total dps
-			Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
+			if canShowPercent then
+				local ruleToUse = 3 --total dps percent
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), format("%.0f%%", source.totalAmount / topValue * 100), ruleToUse)
+			else
+				local ruleToUse = 2 --total dps
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsDamage), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
+			end
 		end
 
 	elseif mainDisplay == DETAILS_ATTRIBUTE_HEAL then
 		if (subDisplay == DETAILS_SUBATTRIBUTE_HEALDONE or subDisplay == DETAILS_SUBATTRIBUTE_OVERHEAL) then
-			local ruleToUse = 2 --total hps
-			Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsHealing), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
-			--percentNumber = math.floor((healingTotal/instanceObject.top) * 100)
+			if canShowPercent then
+				local ruleToUse = 3 --total hps percent
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsHealing), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), format("%.0f%%", source.totalAmount / topValue * 100), ruleToUse)
+			else
+				local ruleToUse = 2 --total hps
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.totalAmount, Details.abbreviateOptionsHealing), AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsDPS), nil, ruleToUse)
+				--percentNumber = math.floor((healingTotal/instanceObject.top) * 100)
+			end
+
 		elseif (subDisplay == DETAILS_SUBATTRIBUTE_HPS) then
-			local ruleToUse = -1 --only show total
-			Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsHPS), nil, nil, ruleToUse)
-			--percentNumber = math.floor((hps/instanceObject.top) * 100)
+			if canShowPercent then
+				local ruleToUse = 1 --total and percent
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.amountPerSecond), nil, format("%.0f%%", source.totalAmount / topValue * 100), ruleToUse)
+			else
+				local ruleToUse = -1 --only show total
+				Details:SimpleFormat(instanceLine.lineText2, instanceLine.lineText3, instanceLine.lineText4, AbbreviateNumbers(source.amountPerSecond, Details.abbreviateOptionsHPS), nil, nil, ruleToUse)
+				--percentNumber = math.floor((hps/instanceObject.top) * 100)
+			end
 
 		elseif (attributeId == DETAILS_SUBATTRIBUTE_HEALPOTION) then
 			local ruleToUse = 3 --total hps percent
@@ -4291,6 +4340,7 @@ function Details:SetClassIcon(texture, instance, class) --[[exported]] --~icons
 				texture:SetTexCoord(unpack(Details.class_specs_coords[self.spec]))
 				texture:SetVertexColor(1, 1, 1)
 			else
+				--issue is here
 				texture:SetTexture(instance.row_info.icon_file or [[Interface\AddOns\Details\images\classes_small]])
 				if (not class or class == "" or type(class) ~= "string" or not Details.class_coords[class]) then
 					class = "UNKNOW"
