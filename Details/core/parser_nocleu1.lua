@@ -148,8 +148,6 @@ local print = function(...)
     end
 end
 
-print = _print
-
 --local print = _G.print
 
 local restrictionFlags
@@ -314,12 +312,14 @@ local getArenaPlayers = function(damageContainer)
         local actor = damageContainer[i]
         if (not actor.specIconID) then
             local className = actor.classFilename
-            --convert the first two letters of the class name to numbers in the ascii
-            local classNumber = 0
-            for j = 1, 2 do
-                classNumber = classNumber + string.byte(className, j)
+            if className and type(className) == "string" and className ~= "" then
+                local classNumber = 0
+                --convert the first two letters of the class name to numbers in the ascii
+                for j = 1, 2 do
+                    classNumber = classNumber + string.byte(className, j)
+                end
+                detailsFramework.table.addunique(theseArenaPlayers, classNumber)
             end
-            detailsFramework.table.addunique(theseArenaPlayers, classNumber)
         else
             detailsFramework.table.addunique(theseArenaPlayers, actor.specIconID)
         end
@@ -735,7 +735,7 @@ end
 ---@return string|nil amountDoneField
 ---@return string|nil classField
 local isServerSideSessionOpen = function(segmentId)
-    if Details222.Apocalypse.IsServerInCombat(true, true) then
+    if Details222.Apocalypse.IsServerInCombat(true, true, true) then
         return true
     end
 
@@ -849,7 +849,21 @@ local addOverallAsSegment = function()
             local class = thisActor.classFilename
             local icon = thisActor.specIconID
 
-            local actor = damageContainer:GetOrCreateActor(actorSerial, actorName, 0x512, true)
+            local actor
+            local okay, errorText = pcall(function()
+                actor = damageContainer:GetOrCreateActor(actorSerial, actorName, 0x512, true)
+                return actor
+            end)
+
+            if not okay then
+                --_print("Failed making a segment from overall data.")
+                --_print(errorText)
+                --return
+                error("AddOnRestrictionType `Combat` is false but client is still reporting secret values.")
+            else
+                actor = errorText
+            end
+
             actor.nome = actorName
             actor.total = totalAmount
             actor.classe = class
@@ -1187,6 +1201,8 @@ local addOverallAsSegment = function()
     return currentCombat
 end
 Details222.BParser.AddOverallAsSegment = addOverallAsSegment
+--DetailsDebug = {}
+--DetailsDebug.AddOverall = Details222.BParser.AddOverallAsSegment
 
 ---@param parameterType any
 ---@param session sessioncache
